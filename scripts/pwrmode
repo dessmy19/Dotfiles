@@ -1,0 +1,37 @@
+#!/bin/sh
+set -e
+
+notify_power() {
+    command -v notify-send >/dev/null 2>&1 && \
+        notify-send -t 1800 "Power Mode" "$1"
+}
+
+apply_power_mode() {
+    mode="$1"
+
+    case "$mode" in
+        Powersave)   sudo -n powerctl apply powersave   || return 1 ;;
+        Balanced)    sudo -n powerctl apply balanced    || return 1 ;;
+        Performance) sudo -n powerctl apply performance || return 1 ;;
+    esac
+
+    notify_power "$mode applied"
+}
+
+raw_current=$(powerctl query 2>/dev/null) || raw_current="unknown"
+case "$raw_current" in
+    powersave)   current="Powersave" ;;
+    balanced)    current="Balanced" ;;
+    performance) current="Performance" ;;
+    *)           current="Unknown" ;;
+esac
+
+chosen=$(printf 'Performance\nBalanced\nPowersave\n' | \
+    wmenu "$@" -l 3 -p "Power Mode (current: ${current})>") || exit 0
+
+[ -z "$chosen" ] && exit 0
+
+apply_power_mode "$chosen" || {
+    notify-send -u critical "Power Mode Error" "Failed to apply $chosen"
+    exit 1
+}

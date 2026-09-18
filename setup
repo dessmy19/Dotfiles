@@ -1,0 +1,954 @@
+#!/bin/bash
+set -e
+error() { exit 1; }
+[ "$(id -u)" -eq 0 ] || error "Run as root."
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+CONFIG_DIRS=(dwl foot fastfetch mako nnn nvim qutebrowser scripts swayidle)
+chattr -i /etc/resolv.conf 2>/dev/null || true
+pacman -Sy --noconfirm parted
+if [ -d /sys/firmware/efi/efivars ]; then
+    BOOT_MODE="uefi"
+else
+    BOOT_MODE="bios"
+fi
+lsblk -d -o NAME,SIZE,MODEL
+read -rp "Target disk (e.g. /dev/sda or /dev/nvme0n1): " DISK
+[ -b "$DISK" ] || error "Disk not found."
+read -rp "Hostname [artix]: " HOSTNAME
+HOSTNAME=${HOSTNAME:-artix}
+read -rp "New username [user]: " USERNAME
+USERNAME=${USERNAME:-user}
+while true; do
+    read -rsp "Root password: " ROOT_PASS; echo
+    read -rsp "Confirm root password: " ROOT_PASS2; echo
+    [ "$ROOT_PASS" = "$ROOT_PASS2" ] && [ -n "$ROOT_PASS" ] && break
+done
+while true; do
+    read -rsp "Password for ${USERNAME}: " USER_PASS; echo
+    read -rsp "Confirm password for ${USERNAME}: " USER_PASS2; echo
+    [ "$USER_PASS" = "$USER_PASS2" ] && [ -n "$USER_PASS" ] && break
+done
+read -rp "Timezone [UTC]: " TIMEZONE
+TIMEZONE=${TIMEZONE:-UTC}
+LOCALE="en_US.UTF-8"
+read -rp "Keyboard layout [us]: " KBLAYOUT
+KBLAYOUT=${KBLAYOUT:-us}
+loadkeys "$KBLAYOUT" 2>/dev/null || true
+read -rp "Mirror country code (blank = worldwide, e.g. ID/US/SG/JP/DE): " MIRROR_COUNTRY
+read -rp "EFI partition size in MiB [512]: " EFI_SIZE
+EFI_SIZE=${EFI_SIZE:-512}
+echo "Available kernels:"
+echo "  1) linux"
+echo "  2) linux-lts"
+echo "  3) linux-zen"
+echo "  4) linux-hardened"
+read -rp "Select kernel [1]: " KERNEL_CHOICE
+KERNEL_CHOICE=${KERNEL_CHOICE:-1}
+case "$KERNEL_CHOICE" in
+    1) KERNEL_PKG="linux" ;;
+    2) KERNEL_PKG="linux-lts" ;;
+    3) KERNEL_PKG="linux-zen" ;;
+    4) KERNEL_PKG="linux-hardened" ;;
+    *) error "Invalid kernel choice." ;;
+esac
+read -rp "Root filesystem ext4/btrfs [ext4]: " ROOTFS
+ROOTFS=${ROOTFS:-ext4}
+case "$ROOTFS" in
+    ext4|btrfs) ;;
+    *) error "Unsupported filesystem: $ROOTFS" ;;
+esac
+read -rp "Type 'YES' to continue: " CONFIRM
+[ "$CONFIRM" = "YES" ] || error "Aborted."
+exec < /dev/null
+if [[ "$DISK" == *"nvme"* || "$DISK" == *"mmcblk"* ]]; then
+    PART_PREFIX="${DISK}p"
+else
+    PART_PREFIX="${DISK}"
+fi
+swapoff -a 2>/dev/null || true
+umount -R /mnt 2>/dev/null || true
+for part in "${PART_PREFIX}"*; do
+    [ -b "$part" ] && umount -f "$part" 2>/dev/null || true
+done
+wipefs -af "$DISK"
+partprobe "$DISK" 2>/dev/null || true
+sleep 1
+parted -s "$DISK" mklabel gpt
+if [ "$BOOT_MODE" = "uefi" ]; then
+    parted -s "$DISK" mkpart EFI fat32 1MiB "${EFI_SIZE}MiB"
+    parted -s "$DISK" set 1 esp on
+    parted -s "$DISK" mkpart ROOT "$ROOTFS" "${EFI_SIZE}MiB" 100%
+    EFI_PART="${PART_PREFIX}1"
+    ROOT_PART="${PART_PREFIX}2"
+else
+    parted -s "$DISK" mkpart BIOSBOOT 1MiB 2MiB
+    parted -s "$DISK" set 1 bios_grub on
+    parted -s "$DISK" mkpart ROOT "$ROOTFS" 2MiB 100%
+    ROOT_PART="${PART_PREFIX}2"
+fi
+for i in 1 2 3 4 5; do
+    partprobe "$DISK" 2>/dev/null && break
+    sleep 2
+done
+udevadm settle 2>/dev/null || true
+sleep 2
+wait_for_blockdev() {
+    dev="$1"
+    for i in 1 2 3 4 5 6 7 8 9 10; do
+        [ -b "$dev" ] && return 0
+        partprobe "$DISK" 2>/dev/null || true
+        partx -u "$DISK" 2>/dev/null || true
+        udevadm settle 2>/dev/null || true
+        sleep 1
+    done
+    return 1
+}
+lsblk "$DISK" 2>/dev/null || true
+ls -la "${PART_PREFIX}"* 2>/dev/null || true
+wait_for_blockdev "$ROOT_PART" || error "$ROOT_PART not found."
+wipefs -af "$ROOT_PART" 2>/dev/null || true
+if [ "$ROOTFS" = "btrfs" ]; then
+    mkfs.btrfs -f "$ROOT_PART"
+else
+    mkfs.ext4 -F "$ROOT_PART"
+fi
+if [ "$BOOT_MODE" = "uefi" ]; then
+    wait_for_blockdev "$EFI_PART" || error "$EFI_PART not found."
+    wipefs -af "$EFI_PART" 2>/dev/null || true
+    mkfs.fat -F32 "$EFI_PART"
+fi
+mount "$ROOT_PART" /mnt
+if [ "$BOOT_MODE" = "uefi" ]; then
+    mkdir -p /mnt/boot/efi
+    mount "$EFI_PART" /mnt/boot/efi
+fi
+mkdir -p /mnt/root/dotfiles-src
+for dir in "${CONFIG_DIRS[@]}"; do
+    if [ -d "$SCRIPT_DIR/$dir" ]; then
+        cp -r "$SCRIPT_DIR/$dir" /mnt/root/dotfiles-src/
+    else
+        :
+    fi
+done
+if [ -f "$SCRIPT_DIR/bash/.bashrc" ]; then
+    cp "$SCRIPT_DIR/bash/.bashrc" /mnt/root/dotfiles-src/dot-bashrc
+else
+    :
+fi
+if [ -d "$SCRIPT_DIR/dwl" ]; then
+    cp -r "$SCRIPT_DIR/dwl" /mnt/root/dwl-src
+else
+    :
+fi
+sed -i 's/^#ParallelDownloads.*/ParallelDownloads = 5/' /etc/pacman.conf 2>/dev/null || true
+pacman -Syy --noconfirm || true
+BASESTRAP_PKGS="base base-devel dbus-runit ${KERNEL_PKG} linux-firmware ${KERNEL_PKG}-headers git wget curl bash-completion tree less usbutils elogind elogind-runit seatd pipewire pipewire-alsa pipewire-pulse pipewire-jack wireplumber alsa-utils iwd-runit inetutils openresolv grub efibootmgr bluez-utils bluez-runit ntfs-3g dosfstools exfatprogs"
+if [ "$ROOTFS" = "btrfs" ]; then
+    BASESTRAP_PKGS="$BASESTRAP_PKGS btrfs-progs"
+else
+    BASESTRAP_PKGS="$BASESTRAP_PKGS e2fsprogs"
+fi
+BASESTRAP_OK=0
+for i in 1 2 3; do
+    if basestrap /mnt $BASESTRAP_PKGS; then
+        BASESTRAP_OK=1
+        break
+    fi
+    pacman -Syy --noconfirm || true
+    sleep 3
+done
+[ "$BASESTRAP_OK" -eq 1 ] || error "basestrap failed."
+fstabgen -U /mnt > /mnt/etc/fstab
+printf 'tmpfs\t/tmp\ttmpfs\trw,nosuid,nodev,size=10%%,mode=1777\t0 0\n' >> /mnt/etc/fstab
+
+mkdir -p /mnt/usr/local/bin
+cat > /mnt/usr/local/bin/powerctl <<'POWERCTL_EOF'
+#!/bin/sh
+
+set -eu
+
+STATE_FILE="/etc/powerctl/mode"
+
+require_root() {
+    [ "$(id -u)" -eq 0 ] || { echo "powerctl: must run as root" >&2; exit 1; }
+}
+
+write_sysfs() {
+    val="$1"; shift
+    for f in "$@"; do
+        [ -e "$f" ] || continue
+        [ -w "$f" ] || continue
+        printf '%s' "$val" > "$f" 2>/dev/null || true
+    done
+}
+
+set_cpu_governor()   { write_sysfs "$1" /sys/devices/system/cpu/cpu[0-9]*/cpufreq/scaling_governor; }
+set_cpu_epp()        { write_sysfs "$1" /sys/devices/system/cpu/cpu[0-9]*/cpufreq/energy_performance_preference; }
+set_platform_profile(){ write_sysfs "$1" /sys/firmware/acpi/platform_profile; }
+set_sata_alpm()       { write_sysfs "$1" /sys/class/scsi_host/host*/link_power_management_policy; }
+set_pcie_aspm()        { write_sysfs "$1" /sys/module/pcie_aspm/parameters/policy; }
+set_audio_powersave()  { write_sysfs "$1" /sys/module/snd_hda_intel/parameters/power_save; }
+
+set_usb_autosuspend() {
+    usb_mode="$1"; usb_timeout="${2:-2}"
+    for f in /sys/bus/usb/devices/*/power/control; do
+        [ -e "$f" ] || continue
+        if [ "$usb_mode" = "on" ]; then
+            printf 'auto' > "$f" 2>/dev/null || true
+        else
+            printf 'on' > "$f" 2>/dev/null || true
+        fi
+    done
+    if [ "$usb_mode" = "on" ]; then
+        write_sysfs "$((usb_timeout * 1000))" /sys/bus/usb/devices/*/power/autosuspend_delay_ms
+    fi
+}
+
+set_disk_apm() {
+    command -v hdparm >/dev/null 2>&1 || return 0
+    level="$1"
+    for d in /sys/block/sd*; do
+        [ -e "$d" ] || continue
+        dev="/dev/$(basename "$d")"
+        hdparm -B "$level" "$dev" >/dev/null 2>&1 || true
+    done
+}
+
+set_wifi_powersave() {
+    command -v iw >/dev/null 2>&1 || return 0
+    state="$1"
+    for w in /sys/class/net/*/wireless; do
+        [ -e "$w" ] || continue
+        iface=$(basename "$(dirname "$w")")
+        iw dev "$iface" set power_save "$state" >/dev/null 2>&1 || true
+    done
+}
+
+first_cpu_file() {
+    for f in /sys/devices/system/cpu/cpu[0-9]*/"$1"; do
+        [ -e "$f" ] && echo "$f" && return 0
+    done
+    return 1
+}
+
+gov_available() {
+    avail=$(first_cpu_file cpufreq/scaling_available_governors 2>/dev/null || true)
+    [ -n "$avail" ] || return 1
+    grep -q "$1" "$avail" 2>/dev/null
+}
+
+read_current() {
+    f=$(first_cpu_file cpufreq/"$1" 2>/dev/null || true)
+    [ -n "$f" ] && cat "$f" 2>/dev/null
+}
+
+balanced_governor() {
+    if gov_available schedutil; then
+        echo schedutil
+    else
+        echo powersave
+    fi
+}
+
+apply_mode() {
+    mode="$1"
+
+    case "$mode" in
+        powersave|balanced|performance) ;;
+        *)
+            echo "powerctl: unknown mode '$mode'" >&2
+            exit 1
+            ;;
+    esac
+
+    mkdir -p "$(dirname "$STATE_FILE")"
+    printf '%s\n' "$mode" > "$STATE_FILE"
+
+    case "$mode" in
+        powersave)
+            set_cpu_governor powersave
+            set_cpu_epp power
+            set_platform_profile low-power
+            set_sata_alpm min_power
+            set_pcie_aspm powersupersave
+            set_usb_autosuspend on 1
+            set_disk_apm 128
+            set_wifi_powersave on
+            set_audio_powersave 1
+            ;;
+        balanced)
+            set_cpu_governor "$(balanced_governor)"
+            set_cpu_epp balance_power
+            set_platform_profile balanced
+            set_sata_alpm med_power_with_dipm
+            set_pcie_aspm default
+            set_usb_autosuspend on 2
+            set_disk_apm 192
+            set_wifi_powersave on
+            set_audio_powersave 1
+            ;;
+        performance)
+            set_cpu_governor performance
+            set_cpu_epp performance
+            set_platform_profile performance
+            set_sata_alpm max_performance
+            set_pcie_aspm performance
+            set_usb_autosuspend off
+            set_disk_apm 254
+            set_wifi_powersave off
+            set_audio_powersave 0
+            ;;
+        *)
+            echo "powerctl: unknown mode '$mode'" >&2
+            exit 1
+            ;;
+    esac
+}
+
+case "${1:-}" in
+    apply)
+        require_root
+        [ -n "${2:-}" ] || { echo "usage: powerctl apply <mode>" >&2; exit 1; }
+        apply_mode "$2"
+        ;;
+    reapply)
+        require_root
+        set +eu
+        mode=""
+        [ -f "$STATE_FILE" ] && mode=$(cat "$STATE_FILE" 2>/dev/null || true)
+        case "$mode" in
+            powersave|balanced|performance) ;;
+            *)
+                mode=""
+                ;;
+        esac
+        if [ -n "$mode" ]; then
+            apply_mode "$mode"
+        else
+            [ -f "$STATE_FILE" ] && printf 'balanced\n' > "$STATE_FILE"
+            apply_mode balanced
+        fi
+        ;;
+    query)
+        gov=$(read_current scaling_governor || true)
+        case "$gov" in
+            schedutil)              echo balanced; exit 0 ;;
+            powersave|performance)  ;;
+            *)                      gov="" ;;
+        esac
+        epp=$(read_current energy_performance_preference || true)
+        if [ "$gov" = "powersave" ]; then
+            case "$epp" in
+                power)                            echo powersave; exit 0 ;;
+                balance_power|balance_performance) echo balanced;  exit 0 ;;
+            esac
+            echo powersave; exit 0
+        fi
+        case "$gov" in
+            performance) echo performance; exit 0 ;;
+            *)           echo unknown;    exit 0 ;;
+        esac
+        echo unknown
+        ;;
+    *)
+        echo "usage: powerctl {apply <mode>|reapply|query}" >&2
+        exit 1
+        ;;
+esac
+POWERCTL_EOF
+chmod +x /mnt/usr/local/bin/powerctl
+
+HAS_NVIDIA_DUAL=0
+_HOST_GPU_INFO=$(lspci -nn 2>/dev/null || true)
+echo "$_HOST_GPU_INFO" | grep -qi nvidia   && HAS_NVIDIA_DUAL=1
+_HOST_HAS_IGPU=0
+echo "$_HOST_GPU_INFO" | grep -qiE 'VGA.*Intel|Display.*Intel|VGA.*AMD|VGA.*ATI' && _HOST_HAS_IGPU=1
+[ "$HAS_NVIDIA_DUAL" -eq 1 ] && [ "$_HOST_HAS_IGPU" -eq 1 ] && HAS_NVIDIA_DUAL=2
+
+if [ "$HAS_NVIDIA_DUAL" -ge 2 ]; then
+cat > /mnt/usr/local/bin/dgpu <<'DGPU_EOF'
+#!/bin/bash
+set -euo pipefail
+
+TIMEOUT=10
+
+get_nvidia_pci() {
+    lspci -nn | awk '/VGA compatible controller.*NVIDIA/ || /3D controller.*NVIDIA/ {
+        match($0, /([0-9a-f]{4}:)?[0-9a-f]{2}:[0-9a-f]{2}\.[0-9a-f]/)
+        if (RSTART > 0) print substr($0, RSTART, RLENGTH)
+    }' | head -1
+}
+
+sysfs_pci() {
+    case "$1" in
+        ????:*) echo "$1" ;;
+        *)      echo "0000:${1}" ;;
+    esac
+}
+
+gpu_power_control() {
+    local pci
+    pci=$(sysfs_pci "$(get_nvidia_pci)")
+    cat "/sys/bus/pci/devices/${pci}/power/control" 2>/dev/null || echo "on"
+}
+
+[ "$(id -u)" -eq 0 ] || { echo "dgpu: must run as root" >&2; exit 1; }
+
+nvidia_pci=$(get_nvidia_pci)
+[ -n "$nvidia_pci" ] || { echo "dgpu: no NVIDIA GPU found." >&2; exit 1; }
+pci=$(sysfs_pci "$nvidia_pci")
+power_path="/sys/bus/pci/devices/${pci}/power/control"
+autosuspend_path="/sys/bus/pci/devices/${pci}/power/autosuspend_delay_ms"
+
+case "${1:-}" in
+    on)
+        if [ "$(gpu_power_control)" = "on" ]; then
+            echo "dgpu: already on."
+            exit 0
+        fi
+        if [ -w "$power_path" ]; then
+            echo on > "$power_path" 2>/dev/null || true
+        fi
+        systemctl start nvidia-persistenced 2>/dev/null || true
+        for mod in nvidia nvidia_uvm nvidia_modeset nvidia_drm; do
+            if ! lsmod | grep -q "^${mod} "; then
+                timeout --signal=KILL 30 modprobe "$mod" 2>/dev/null || {
+                    echo "  Warning: failed to load ${mod}" >&2
+                }
+            fi
+        done
+        echo "dgpu: on."
+        ;;
+    off)
+        if [ "$(gpu_power_control)" = "auto" ]; then
+            echo "dgpu: already off."
+            exit 0
+        fi
+        systemctl stop nvidia-persistenced 2>/dev/null || true
+        if [ -w "$autosuspend_path" ]; then
+            echo 0 > "$autosuspend_path" 2>/dev/null || true
+        fi
+        if [ -w "$power_path" ]; then
+            echo auto > "$power_path" 2>/dev/null
+            echo "dgpu: off (runtime PM, enters D3 when idle)."
+        else
+            echo "dgpu: cannot set runtime PM for ${pci}" >&2
+            exit 1
+        fi
+        ;;
+    s|status)
+        ctl=$(gpu_power_control)
+        echo "dgpu: ${ctl}"
+        ;;
+    *)
+        echo "Usage: dgpu {on|off|status}" >&2
+        exit 1
+        ;;
+esac
+DGPU_EOF
+chmod +x /mnt/usr/local/bin/dgpu
+fi
+
+mkdir -p /mnt/etc/udev/rules.d
+cat > /mnt/etc/udev/rules.d/90-powerctl.rules <<'POWERCTL_RULES_EOF'
+SUBSYSTEM=="power_supply", ACTION=="add|change", RUN+="/usr/local/bin/powerctl reapply"
+POWERCTL_RULES_EOF
+
+cat > /mnt/root/chroot-setup.sh <<EOF
+#!/bin/bash
+set -e
+
+enable_svc() {
+    if [ -d "/etc/runit/sv/\$1" ]; then
+        ln -sf "/etc/runit/sv/\$1" /etc/runit/runsvdir/default/
+    else
+        :
+    fi
+}
+
+make_svc() {
+    mkdir -p "/etc/runit/sv/\$1"
+    cat > "/etc/runit/sv/\$1/run"
+    chmod +x "/etc/runit/sv/\$1/run"
+    enable_svc "\$1"
+}
+
+echo "root:${ROOT_PASS}" | chpasswd
+
+ln -sf /usr/share/zoneinfo/${TIMEZONE} /etc/localtime
+hwclock --systohc
+
+sed -i 's/#en_US.UTF-8 UTF-8/en_US.UTF-8 UTF-8/' /etc/locale.gen
+sed -i "s/#${LOCALE} UTF-8/${LOCALE} UTF-8/" /etc/locale.gen
+locale-gen
+echo "LANG=${LOCALE}" > /etc/locale.conf
+
+echo "KEYMAP=${KBLAYOUT}" > /etc/vconsole.conf
+
+echo "${HOSTNAME}" > /etc/hostname
+cat >> /etc/hosts <<HOSTS
+127.0.0.1   localhost
+::1         localhost
+127.0.1.1   ${HOSTNAME}.localdomain ${HOSTNAME}
+HOSTS
+
+useradd -m -G wheel -s /bin/bash "${USERNAME}"
+echo "${USERNAME}:${USER_PASS}" | chpasswd
+
+mkdir -p /etc/sudoers.d
+cat > /etc/sudoers.d/10-wheel <<SUDOERS
+%wheel ALL=(ALL:ALL) ALL
+Defaults env_keep += "HOME"
+Defaults secure_path="/usr/local/sbin:/usr/local/bin:/usr/bin:/usr/bin/site_perl:/usr/bin/vendor_perl:/usr/bin/core_perl:/home/${USERNAME}/.local/bin"
+SUDOERS
+chmod 0440 /etc/sudoers.d/10-wheel
+visudo -cf /etc/sudoers.d/10-wheel || exit 1
+
+pacman -S --noconfirm artix-archlinux-support
+pacman-key --populate archlinux
+
+cat > /etc/pacman.d/mirrorlist-arch <<'MIRRORLIST'
+Server = https://geo.mirror.pkgbuild.com/\$repo/os/\$arch
+MIRRORLIST
+
+MIRROR_URL="https://archlinux.org/mirrorlist/?protocol=https&use_mirror_status=on"
+[ -n "${MIRROR_COUNTRY}" ] && MIRROR_URL="\${MIRROR_URL}&country=${MIRROR_COUNTRY}"
+
+FETCHED_MIRRORS=\$(curl -fsSL "\$MIRROR_URL" 2>/dev/null | sed 's/^#Server/Server/' | grep '^Server') || true
+if [ -n "\$FETCHED_MIRRORS" ]; then
+    printf '%s\n' "\$FETCHED_MIRRORS" > /etc/pacman.d/mirrorlist-arch
+fi
+
+if ! grep -q '^\[extra\]' /etc/pacman.conf; then
+cat >> /etc/pacman.conf <<PACMANCONF
+
+[extra]
+Include = /etc/pacman.d/mirrorlist-arch
+
+[multilib]
+Include = /etc/pacman.d/mirrorlist-arch
+PACMANCONF
+fi
+
+pacman -Syy --noconfirm || true
+
+mkdir -p /home/${USERNAME}/.config
+if [ -d /root/dotfiles-src ]; then
+    for dir in /root/dotfiles-src/*/; do
+        [ -d "\$dir" ] || continue
+        dname=\$(basename "\$dir")
+        cp -r "\$dir" "/home/${USERNAME}/.config/\$dname"
+    done
+    chown -R ${USERNAME}:${USERNAME} /home/${USERNAME}/.config
+
+    if [ -d "/home/${USERNAME}/.config/scripts" ]; then
+        chmod -R +x "/home/${USERNAME}/.config/scripts"
+    fi
+fi
+
+mkdir -p /root/.config
+for d in /home/${USERNAME}/.config/*/; do
+    [ -d "\$d" ] || continue
+    dname=\$(basename "\$d")
+    case "\$dname" in
+        scripts)
+            :
+            ;;
+        *)
+            rm -rf "/root/.config/\$dname"
+            ln -sf "/home/${USERNAME}/.config/\$dname" "/root/.config/\$dname"
+            ;;
+    esac
+done
+chown -R root:root /root/.config
+
+if [ -f /root/dotfiles-src/dot-bashrc ]; then
+    cp /root/dotfiles-src/dot-bashrc "/home/${USERNAME}/.bashrc"
+fi
+rm -rf /root/dotfiles-src
+
+cat > /home/${USERNAME}/.bash_profile <<'BASHPROFILE'
+export XKB_DEFAULT_LAYOUT="${KBLAYOUT}"
+[[ -f "\$HOME/.bashrc" ]] && source "\$HOME/.bashrc"
+BASHPROFILE
+chown ${USERNAME}:${USERNAME} /home/${USERNAME}/.bashrc /home/${USERNAME}/.bash_profile
+
+mkdir -p /etc/iwd
+cat >> /etc/iwd/main.conf <<IWD
+[General]
+EnableNetworkConfiguration=true
+
+[Network]
+NameResolvingService=resolvconf
+IWD
+
+mkdir -p /etc/runit/runsvdir/default
+enable_svc dbus
+enable_svc iwd
+enable_svc bluetoothd
+
+make_svc dbus <<'DBUSSV'
+#!/bin/sh
+dbus-uuidgen --ensure=/etc/machine-id
+[ -d /run/dbus ] || install -m755 -g 81 -o 81 -d /run/dbus
+exec dbus-daemon --system --nofork --nopidfile 2>&1
+DBUSSV
+
+make_svc bluetoothd <<'BTDSV'
+#!/bin/sh
+sv check dbus >/dev/null || exit 1
+exec /usr/lib/bluetooth/bluetoothd -n >/dev/null 2>&1
+BTDSV
+
+mkdir -p /etc/resolv.conf.d
+cat > /etc/resolv.conf.d/base <<'RESOLVBASE'
+nameserver 1.1.1.1
+nameserver 8.8.8.8
+RESOLVBASE
+
+usermod -aG audio,video,lp,storage "${USERNAME}"
+
+mkdir -p /etc/pipewire/pipewire.conf.d /etc/wireplumber/wireplumber.conf.d
+cat > /etc/pipewire/pipewire.conf.d/99-no-rtkit.conf <<'PWNORTKIT'
+context.properties = {
+    module.rt = false
+}
+PWNORTKIT
+
+cat >> /etc/security/limits.conf <<LIMITSCONF
+${USERNAME}    soft    nofile  524288
+${USERNAME}    hard    nofile  524288
+LIMITSCONF
+
+for pamfile in system-login su sudo; do
+    if [ -f "/etc/pam.d/\$pamfile" ] && ! grep -q 'pam_limits.so' "/etc/pam.d/\$pamfile"; then
+        echo "session    required   pam_limits.so" >> "/etc/pam.d/\$pamfile"
+    fi
+done
+
+if ! grep -q '^fs.file-max' /etc/sysctl.d/99-filemax.conf 2>/dev/null; then
+    mkdir -p /etc/sysctl.d
+    echo 'fs.file-max = 2097152' > /etc/sysctl.d/99-filemax.conf
+fi
+
+mkdir -p \
+    "/home/${USERNAME}/Music" \
+    "/home/${USERNAME}/Downloads" \
+    "/home/${USERNAME}/Pictures/Wallpapers" \
+    "/home/${USERNAME}/.cache"
+
+if ! grep -q '.local/bin' "/home/${USERNAME}/.bashrc" 2>/dev/null; then
+    cat >> "/home/${USERNAME}/.bashrc" <<'LOCALBINPATH'
+
+export PATH="\$HOME/.local/bin:\$PATH"
+LOCALBINPATH
+fi
+
+GPU_INFO=\$(lspci -nnk | grep -Ei "VGA compatible controller|3D controller|Display controller")
+
+HAS_NVIDIA=0; HAS_INTEL=0; HAS_AMD=0
+echo "\$GPU_INFO" | grep -qi nvidia   && HAS_NVIDIA=1
+echo "\$GPU_INFO" | grep -qi intel    && HAS_INTEL=1
+echo "\$GPU_INFO" | grep -Eqi "amd|ati|radeon" && HAS_AMD=1
+
+cat > /etc/sudoers.d/20-wheel-nopass <<'SUDOERS'
+%wheel ALL=(ALL:ALL) NOPASSWD: ALL
+SUDOERS
+chmod 0440 /etc/sudoers.d/20-wheel-nopass
+visudo -cf /etc/sudoers.d/20-wheel-nopass || exit 1
+
+su - "${USERNAME}" -c "cd ~ && git clone https://aur.archlinux.org/yay-bin.git && cd yay-bin && makepkg -si --noconfirm" \
+    || true
+rm -rf "/home/${USERNAME}/yay-bin"
+
+cat > /home/${USERNAME}/dwl-install.sh <<'DWLSCRIPT'
+#!/bin/bash
+GPU_PKGS="mesa vulkan-icd-loader lib32-mesa lib32-vulkan-icd-loader"
+[ "\$HAS_NVIDIA" -eq 1 ] && GPU_PKGS="\$GPU_PKGS nvidia-dkms nvidia-utils nvidia-settings opencl-nvidia lib32-nvidia-utils lib32-opencl-nvidia"
+[ "\$HAS_INTEL" -eq 1 ]  && GPU_PKGS="\$GPU_PKGS vulkan-intel intel-media-driver libva-intel-driver lib32-vulkan-intel"
+[ "\$HAS_AMD" -eq 1 ]    && GPU_PKGS="\$GPU_PKGS xf86-video-amdgpu vulkan-radeon libva-mesa-driver lib32-vulkan-radeon"
+
+ALL_PKGS="\$GPU_PKGS wayland wayland-protocols pkgconf libxkbcommon libinput libnotify pixman fcft tllist wlroots0.19 wlr-randr libxcb xcb-util-wm foot mako wmenu cliphist swaybg xorg-xwayland ttf-firacode-nerd noto-fonts noto-fonts-cjk noto-fonts-emoji bc neovim htop zoxide fastfetch ffmpeg 7zip zip rar qutebrowser wireguard-tools grim slurp waylock hyprpicker brightnessctl swayidle wlopm xdg-desktop-portal xdg-desktop-portal-wlr qt5-wayland qt6-wayland nnn bat jq fzf ripgrep fd wl-clipboard imagemagick"
+
+for pkg in \$ALL_PKGS; do
+    yes | yay -S --needed --noconfirm --mflags --skippgpcheck "\$pkg" \
+        || true
+done
+DWLSCRIPT
+chown ${USERNAME}:${USERNAME} /home/${USERNAME}/dwl-install.sh
+chmod +x /home/${USERNAME}/dwl-install.sh
+
+su - "${USERNAME}" -c "HAS_NVIDIA=\$HAS_NVIDIA HAS_INTEL=\$HAS_INTEL HAS_AMD=\$HAS_AMD /home/${USERNAME}/dwl-install.sh"
+rm -f /home/${USERNAME}/dwl-install.sh
+
+if [ "\$HAS_NVIDIA" -eq 1 ]; then
+
+    if grep -q 'GRUB_CMDLINE_LINUX_DEFAULT=' /etc/default/grub; then
+        if ! grep -q 'nvidia_drm.modeset=0' /etc/default/grub; then
+            sed -i 's/^\(GRUB_CMDLINE_LINUX_DEFAULT="[^"]*\)"/\1 nvidia_drm.modeset=0"/' /etc/default/grub
+        fi
+    else
+        echo 'GRUB_CMDLINE_LINUX_DEFAULT="nvidia_drm.modeset=0"' >> /etc/default/grub
+    fi
+
+    if grep -q '^MODULES=()' /etc/mkinitcpio.conf; then
+        sed -i 's/^MODULES=()/MODULES=(nvidia nvidia_modeset nvidia_uvm nvidia_drm)/' /etc/mkinitcpio.conf
+    elif grep -q '^MODULES=(' /etc/mkinitcpio.conf && ! grep -q 'nvidia_drm' /etc/mkinitcpio.conf; then
+        sed -i '/^MODULES=(/ s/)\$/ nvidia nvidia_modeset nvidia_uvm nvidia_drm)/' /etc/mkinitcpio.conf
+    fi
+
+    echo "options nvidia NVreg_PreserveVideoMemoryAllocations=1 NVreg_EnableGpuFirmware=0 NVreg_DynamicPowerManagement=0x02" > /etc/modprobe.d/nvidia-power.conf
+
+    mkinitcpio -P || true
+fi
+
+if [ -d /root/dwl-src ]; then
+    cd /root/dwl-src
+    WPROTO_DIR="\$(pkg-config --variable=pkgdatadir wayland-protocols 2>/dev/null)"
+    if [ -n "\$WPROTO_DIR" ] && grep -q 'staging/cursor-shape' Makefile 2>/dev/null \
+       && [ ! -f "\$WPROTO_DIR/staging/cursor-shape/cursor-shape-v1.xml" ] \
+       && [ -f "\$WPROTO_DIR/stable/cursor-shape/cursor-shape-v1.xml" ]; then
+        sed -i 's#staging/cursor-shape#stable/cursor-shape#g' Makefile
+    fi
+    cd /root
+    if ! ( cd /root/dwl-src && make clean install ) 2>&1 | tee /root/dwl-build.log; then
+        exit 1
+    fi
+
+    if [ -f "/home/${USERNAME}/.config/scripts/statusbar.c" ]; then
+        mkdir -p "/home/${USERNAME}/.local/bin"
+        cc -O2 -o "/home/${USERNAME}/.local/bin/statusbar" \
+            "/home/${USERNAME}/.config/scripts/statusbar.c" \
+            && chown ${USERNAME}:${USERNAME} "/home/${USERNAME}/.local/bin/statusbar"
+    fi
+
+    command -v dwl >/dev/null 2>&1 || exit 1
+
+    rm -rf /root/dwl-src
+else
+    exit 1
+fi
+
+mkdir -p /etc/wireguard
+chmod 700 /etc/wireguard
+
+WG_QUICK_BIN="\$(command -v wg-quick || echo /usr/bin/wg-quick)"
+cat > /etc/sudoers.d/30-vpn <<SUDOERS
+%wheel ALL=(root) NOPASSWD: \${WG_QUICK_BIN} up *, \${WG_QUICK_BIN} down *
+SUDOERS
+chmod 0440 /etc/sudoers.d/30-vpn
+visudo -cf /etc/sudoers.d/30-vpn \
+    || true
+
+cat > /etc/sudoers.d/32-powerctl <<'SUDOERS'
+%wheel ALL=(root) NOPASSWD: /usr/local/bin/powerctl apply *, /usr/local/bin/powerctl reapply, /usr/local/bin/powerctl query
+SUDOERS
+chmod 0440 /etc/sudoers.d/32-powerctl
+visudo -cf /etc/sudoers.d/32-powerctl \
+    || true
+
+if [ -f /usr/local/bin/dgpu ]; then
+cat > /etc/sudoers.d/33-dgpu <<'SUDOERS'
+%wheel ALL=(root) NOPASSWD: /usr/local/bin/dgpu on, /usr/local/bin/dgpu off, /usr/local/bin/dgpu s, /usr/local/bin/dgpu status
+SUDOERS
+chmod 0440 /etc/sudoers.d/33-dgpu
+visudo -cf /etc/sudoers.d/33-dgpu \
+    || true
+fi
+
+su - "${USERNAME}" -c 'src=\$(mktemp -d) \
+    && git clone --recursive --depth 1 https://github.com/akinomyoga/ble.sh.git "\$src" \
+    && make -C "\$src" install PREFIX="\$HOME/.local" \
+    && rm -rf "\$src"' \
+    || true
+
+rm -f /etc/sudoers.d/20-wheel-nopass
+
+# Seat management is handled by elogind (logind backend of libseat).
+# The seatd daemon must not run: libseat tries seatd before logind,
+# which would keep dwl out of the elogind session.
+
+make_svc runtimedir <<'RUNTIMEDIRSV'
+#!/bin/sh
+u="\$(id -u ${USERNAME} 2>/dev/null)" || exit 0
+mkdir -p "/run/user/\$u"
+chown ${USERNAME}:${USERNAME} "/run/user/\$u"
+chmod 0700 "/run/user/\$u"
+exec sv down runtimedir
+RUNTIMEDIRSV
+
+mkdir -p /media
+cat > /usr/local/bin/block-automount <<'AUTOMOUNT'
+#!/bin/bash
+ACTION="\$1"
+DEV="\$2"
+DEVNODE="/dev/\$DEV"
+MOUNT_POINT="/media/\$DEV"
+TARGET_USER="__USERNAME__"
+TARGET_UID="\$(id -u "\$TARGET_USER" 2>/dev/null || echo 1000)"
+TARGET_GID="\$(id -g "\$TARGET_USER" 2>/dev/null || echo 1000)"
+
+findmnt -rn -o SOURCE "\$DEVNODE" >/dev/null 2>&1 && exit 0
+
+case "\$ACTION" in
+add)
+    mkdir -p "\$MOUNT_POINT"
+    FSTYPE="\$(blkid -o value -s TYPE "\$DEVNODE" 2>/dev/null)"
+    case "\$FSTYPE" in
+        vfat)
+            mount -t vfat -o uid="\$TARGET_UID",gid="\$TARGET_GID",utf8,dmask=022,fmask=133 "\$DEVNODE" "\$MOUNT_POINT"
+            ;;
+        exfat)
+            mount -t exfat -o uid="\$TARGET_UID",gid="\$TARGET_GID" "\$DEVNODE" "\$MOUNT_POINT"
+            ;;
+        ntfs)
+            ntfs-3g -o uid="\$TARGET_UID",gid="\$TARGET_GID" "\$DEVNODE" "\$MOUNT_POINT"
+            ;;
+        iso9660)
+            mount -t iso9660 -o uid="\$TARGET_UID",gid="\$TARGET_GID",ro "\$DEVNODE" "\$MOUNT_POINT"
+            ;;
+        *)
+            mount "\$DEVNODE" "\$MOUNT_POINT"
+            chown "\$TARGET_UID":"\$TARGET_GID" "\$MOUNT_POINT"
+            ;;
+    esac
+    ;;
+remove)
+    umount "\$MOUNT_POINT" 2>/dev/null
+    rmdir "\$MOUNT_POINT" 2>/dev/null
+    ;;
+esac
+AUTOMOUNT
+sed -i "s/__USERNAME__/${USERNAME}/g" /usr/local/bin/block-automount
+chmod +x /usr/local/bin/block-automount
+grep -q 'ACTION="\$1"' /usr/local/bin/block-automount || { echo "ERROR: block-automount not written correctly"; exit 1; }
+
+mkdir -p /etc/udev/rules.d
+cat > /etc/udev/rules.d/99-block-automount.rules <<'UDEVRULES'
+KERNEL=="sd[a-z][0-9]", SUBSYSTEMS=="usb", ACTION=="add", RUN+="/usr/local/bin/block-automount add %k"
+KERNEL=="sd[a-z][0-9]", SUBSYSTEMS=="usb", ACTION=="remove", RUN+="/usr/local/bin/block-automount remove %k"
+KERNEL=="sd[a-z][0-9]", KERNELS=="ata*", ACTION=="add", RUN+="/usr/local/bin/block-automount add %k"
+KERNEL=="sd[a-z][0-9]", KERNELS=="ata*", ACTION=="remove", RUN+="/usr/local/bin/block-automount remove %k"
+KERNEL=="nvme[0-9]*n[0-9]*p[0-9]*", ACTION=="add", RUN+="/usr/local/bin/block-automount add %k"
+KERNEL=="nvme[0-9]*n[0-9]*p[0-9]*", ACTION=="remove", RUN+="/usr/local/bin/block-automount remove %k"
+KERNEL=="mmcblk[0-9]*p[0-9]*", ACTION=="add", RUN+="/usr/local/bin/block-automount add %k"
+KERNEL=="mmcblk[0-9]*p[0-9]*", ACTION=="remove", RUN+="/usr/local/bin/block-automount remove %k"
+UDEVRULES
+
+make_svc zram <<'ZRAMSV'
+#!/bin/sh
+modprobe zram num_devices=1 2>/dev/null || true
+for i in 1 2 3 4 5; do [ -e /sys/block/zram0 ] && break; sleep 1; done
+echo zstd > /sys/block/zram0/comp_algorithm 2>/dev/null || true
+ZRAM_SIZE=$(awk '/MemTotal/{printf "%dM", $2/1024/2}' /proc/meminfo)
+echo "$ZRAM_SIZE" > /sys/block/zram0/disksize
+mkswap /dev/zram0 >/dev/null 2>&1
+swapon -p 100 /dev/zram0
+exec sv down zram
+ZRAMSV
+
+make_svc pm-async-off <<'PMASYNC'
+#!/bin/sh
+echo 0 > /sys/power/pm_async 2>/dev/null
+exec sv down pm-async-off
+PMASYNC
+
+sed -i 's/^GRUB_TIMEOUT=.*/GRUB_TIMEOUT=0/' /etc/default/grub
+if grep -q '^GRUB_TIMEOUT_STYLE=' /etc/default/grub; then
+    sed -i 's/^GRUB_TIMEOUT_STYLE=.*/GRUB_TIMEOUT_STYLE=hidden/' /etc/default/grub
+else
+    echo 'GRUB_TIMEOUT_STYLE=hidden' >> /etc/default/grub
+fi
+if grep -q '^GRUB_DEFAULT=' /etc/default/grub; then
+    sed -i 's/^GRUB_DEFAULT=.*/GRUB_DEFAULT=saved/' /etc/default/grub
+else
+    echo 'GRUB_DEFAULT=saved' >> /etc/default/grub
+fi
+if grep -q '^GRUB_SAVEDEFAULT=' /etc/default/grub; then
+    sed -i 's/^GRUB_SAVEDEFAULT=.*/GRUB_SAVEDEFAULT=true/' /etc/default/grub
+else
+    echo 'GRUB_SAVEDEFAULT=true' >> /etc/default/grub
+fi
+if grep -q '^GRUB_DISABLE_SUBMENU=' /etc/default/grub; then
+    sed -i 's/^GRUB_DISABLE_SUBMENU=.*/GRUB_DISABLE_SUBMENU=true/' /etc/default/grub
+else
+    echo 'GRUB_DISABLE_SUBMENU=true' >> /etc/default/grub
+fi
+
+if [ -d /sys/firmware/efi/efivars ]; then
+    grub-install --target=x86_64-efi --efi-directory=/boot/efi --bootloader-id=Artix
+else
+    grub-install --target=i386-pc ${DISK}
+fi
+grub-mkconfig -o /boot/grub/grub.cfg
+
+chown -R ${USERNAME}:${USERNAME} "/home/${USERNAME}"
+
+RMOVE_PASS1="flatpak python-dbusmock nvidia-settings"
+RMOVE_PASS1="${RMOVE_PASS1} gtk3 at-spi2-core tinysparql"
+RMOVE_PASS1="${RMOVE_PASS1} adwaita-cursors adwaita-fonts adwaita-icon-theme adwaita-icon-theme-legacy"
+RMOVE_PASS1="${RMOVE_PASS1} gsettings-desktop-schemas gsettings-system-schemas dconf gtk-update-icon-cache"
+RMOVE_PASS1="${RMOVE_PASS1} docbook-xsl meson xmlto python-pytest-xdist"
+RMOVE_PASS1="${RMOVE_PASS1} python-sphinx-copybutton python-sphinx-furo python-sphinxext-opengraph umockdev"
+
+RMOVE_PASS2="libmalcontent accountsservice polkit libportal"
+RMOVE_PASS2="${RMOVE_PASS2} ostree geoclue python-gobject gst-plugins-good"
+
+for pkg in ${RMOVE_PASS1} ${RMOVE_PASS2}; do
+    if pacman -Qi "${pkg}" &>/dev/null; then
+        echo "  Removing ${pkg}..."
+        pacman -Rns --noconfirm "${pkg}" 2>/dev/null || true
+    fi
+done
+
+rm -rf /etc/runit/runsvdir/default/agetty-tty{3,4,5,6,AMA0,S0,USB0} /etc/runit/sv/agetty-tty{3,4,5,6,AMA0,S0,USB0}
+
+rm -f /root/dwl-build.log
+rm -rf /root/dwl-src /root/dotfiles-src
+su - "${USERNAME}" -c "yay -Sc --noconfirm" 2>/dev/null || true
+rm -rf "/home/${USERNAME}/.cache/yay"
+find "/home/${USERNAME}" -maxdepth 1 \( -name "*.pkg.tar.*" -o -name "yay-bin" -o -name "ble.sh*" \) -exec rm -rf {} + 2>/dev/null || true
+pacman -Scc --noconfirm 2>/dev/null || true
+EOF
+chmod +x /mnt/root/chroot-setup.sh
+mkdir -p /mnt/etc
+if [ ! -s /etc/resolv.conf ]; then
+    printf 'nameserver 1.1.1.1\nnameserver 8.8.8.8\n' > /etc/resolv.conf
+fi
+rm -f /mnt/etc/resolv.conf 2>/dev/null || true
+cp -L /etc/resolv.conf /mnt/etc/resolv.conf || error "resolv.conf copy failed."
+[ -s /mnt/etc/resolv.conf ] || error "resolv.conf empty, check network."
+
+mkdir -p /mnt/var/lib/iwd
+shopt -s nullglob
+nm_profiles=(/etc/NetworkManager/system-connections/*.nmconnection)
+shopt -u nullglob
+if [ "${#nm_profiles[@]}" -gt 0 ]; then
+    for conn in "${nm_profiles[@]}"; do
+        ssid="$(sed -n 's/^ssid=//p' "$conn" | head -n1)"
+        psk="$(sed -n 's/^psk=//p' "$conn" | head -n1)"
+        if [ -z "$ssid" ]; then
+            continue
+        fi
+        if [ -n "$psk" ]; then
+            cat > "/mnt/var/lib/iwd/${ssid}.psk" <<IWDPROFILE
+[Security]
+Passphrase=${psk}
+IWDPROFILE
+            chmod 600 "/mnt/var/lib/iwd/${ssid}.psk"
+        else
+            : > "/mnt/var/lib/iwd/${ssid}.open"
+            chmod 600 "/mnt/var/lib/iwd/${ssid}.open"
+        fi
+    done
+fi
+
+artix-chroot /mnt /root/chroot-setup.sh
+rm /mnt/root/chroot-setup.sh
+
+echo
+echo "For Wi-Fi, use: iwctl"
+echo
+sleep 3
+umount -R /mnt
+reboot
