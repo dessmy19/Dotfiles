@@ -3,7 +3,7 @@ set -e
 error() { exit 1; }
 [ "$(id -u)" -eq 0 ] || error "Run as root."
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-CONFIG_DIRS=(dwl foot fastfetch mako nnn nvim qutebrowser scripts swayidle)
+CONFIG_DIRS=(dwl foot fastfetch mako nvim qutebrowser scripts swayidle)
 chattr -i /etc/resolv.conf 2>/dev/null || true
 pacman -Sy --noconfirm parted
 if [ -d /sys/firmware/efi/efivars ]; then
