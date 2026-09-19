@@ -764,10 +764,6 @@ su - "${USERNAME}" -c 'src=\$(mktemp -d) \
 
 rm -f /etc/sudoers.d/20-wheel-nopass
 
-# Seat management is handled by elogind (logind backend of libseat).
-# The seatd daemon must not run: libseat tries seatd before logind,
-# which would keep dwl out of the elogind session.
-
 make_svc runtimedir <<'RUNTIMEDIRSV'
 #!/bin/sh
 u="\$(id -u ${USERNAME} 2>/dev/null)" || exit 0
