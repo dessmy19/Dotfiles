@@ -142,7 +142,7 @@ else
 fi
 sed -i 's/^#ParallelDownloads.*/ParallelDownloads = 5/' /etc/pacman.conf 2>/dev/null || true
 pacman -Syy --noconfirm || true
-BASESTRAP_PKGS="base base-devel dbus-runit ${KERNEL_PKG} linux-firmware ${KERNEL_PKG}-headers git wget curl bash-completion tree less usbutils elogind elogind-runit seatd pipewire pipewire-alsa pipewire-pulse pipewire-jack wireplumber alsa-utils iwd-runit inetutils openresolv grub efibootmgr bluez-utils bluez-runit ntfs-3g dosfstools exfatprogs"
+BASESTRAP_PKGS="base base-devel dbus-runit ${KERNEL_PKG} linux-firmware ${KERNEL_PKG}-headers git wget curl bash-completion tree less usbutils elogind-runit seatd pipewire pipewire-alsa pipewire-pulse pipewire-jack wireplumber alsa-utils iwd-runit inetutils openresolv grub efibootmgr bluez-utils bluez-runit ntfs-3g dosfstools exfatprogs"
 if [ "$ROOTFS" = "btrfs" ]; then
     BASESTRAP_PKGS="$BASESTRAP_PKGS btrfs-progs"
 else
@@ -668,7 +668,7 @@ GPU_PKGS="mesa vulkan-icd-loader lib32-mesa lib32-vulkan-icd-loader"
 [ "\$HAS_INTEL" -eq 1 ]  && GPU_PKGS="\$GPU_PKGS vulkan-intel intel-media-driver libva-intel-driver lib32-vulkan-intel"
 [ "\$HAS_AMD" -eq 1 ]    && GPU_PKGS="\$GPU_PKGS xf86-video-amdgpu vulkan-radeon libva-mesa-driver lib32-vulkan-radeon"
 
-ALL_PKGS="\$GPU_PKGS wayland wayland-protocols pkgconf libxkbcommon libinput libnotify pixman fcft tllist wlroots0.19 wlr-randr libxcb xcb-util-wm foot mako wmenu cliphist swaybg xorg-xwayland ttf-firacode-nerd noto-fonts noto-fonts-cjk noto-fonts-emoji bc neovim htop zoxide fastfetch ffmpeg 7zip zip rar qutebrowser wireguard-tools grim slurp waylock hyprpicker brightnessctl swayidle wlopm xdg-desktop-portal xdg-desktop-portal-wlr qt5-wayland qt6-wayland nnn bat jq fzf ripgrep fd wl-clipboard imagemagick"
+ALL_PKGS="\$GPU_PKGS wayland wayland-protocols pkgconf libxkbcommon libinput libnotify pixman fcft tllist wlroots0.19 wlr-randr libxcb xcb-util-wm foot mako wmenu cliphist swaybg xorg-xwayland ttf-firacode-nerd noto-fonts noto-fonts-cjk noto-fonts-emoji neovim htop zoxide fastfetch ffmpeg 7zip zip rar fzf bc qutebrowser wireguard-tools grim slurp waylock hyprpicker brightnessctl swayidle wlopm xdg-desktop-portal xdg-desktop-portal-wlr qt5-wayland qt6-wayland wl-clipboard imagemagick"
 
 for pkg in \$ALL_PKGS; do
     yes | yay -S --needed --noconfirm --mflags --skippgpcheck "\$pkg" \
