@@ -1,6 +1,5 @@
 timeout 300 'waylock -init-color 0x1a1b26 -input-color 0x7aa2f7 -input-alt-color 0xad8ee6 -fail-color 0xf7768e'
-timeout 600 'wlopm --dpms off'
-resume 'wlopm --dpms on'
+timeout 600 'wlopm --dpms off' resume 'wlopm --dpms on'
 
 before-sleep 'waylock -init-color 0x1a1b26 -input-color 0x7aa2f7 -input-alt-color 0xad8ee6 -fail-color 0xf7768e'
 after-resume 'wlopm --dpms on'
