@@ -764,6 +764,13 @@ if ! grep -q '^fs.file-max' /etc/sysctl.d/99-filemax.conf 2>/dev/null; then
     echo 'fs.file-max = 2097152' > /etc/sysctl.d/99-filemax.conf
 fi
 
+mkdir -p \
+    "/home/${USERNAME}/.cache" \
+    "/home/${USERNAME}/Downloads" \
+    "/home/${USERNAME}/Music" \
+    "/home/${USERNAME}/Pictures" \
+    "/home/${USERNAME}/Videos"
+
 if ! grep -q '.local/bin' "/home/${USERNAME}/.bashrc" 2>/dev/null; then
     cat >> "/home/${USERNAME}/.bashrc" <<'LOCALBINPATH'
 
