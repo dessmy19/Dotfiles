@@ -229,6 +229,9 @@ set_backlight_level() {
             max)
                 val=$(cat "$(dirname "$d")/max_brightness" 2>/dev/null || echo 255)
                 ;;
+            *)
+                val="$level"
+                ;;
         esac
         printf '%s' "$val" > "$d" 2>/dev/null || true
     done
@@ -277,7 +280,7 @@ apply_display_wlr() {
 
 apply_display() {
     [ "$1" = "powersave" ] || return 0
-    set_backlight_level min
+    set_backlight_level 0
     if command -v wlr-randr >/dev/null 2>&1; then
         prefix=$(wlr_env) || prefix=""
         if [ -n "$prefix" ] && $prefix wlr-randr >/dev/null 2>&1; then
@@ -373,6 +376,7 @@ balanced_governor() {
 
 apply_mode() {
     mode="$1"
+    from_reapply="${2:-}"
 
     case "$mode" in
         powersave|balanced|performance) ;;
@@ -390,7 +394,9 @@ apply_mode() {
             set_cpu_governor powersave
             set_cpu_epp power
             apply_cpu_freq powersave
-            apply_display powersave
+            if [ -z "$from_reapply" ]; then
+                apply_display powersave
+            fi
             set_platform_profile low-power
             set_sata_alpm min_power
             set_pcie_aspm powersupersave
@@ -450,10 +456,10 @@ case "${1:-}" in
                 ;;
         esac
         if [ -n "$mode" ]; then
-            apply_mode "$mode"
+            apply_mode "$mode" reapply
         else
             [ -f "$STATE_FILE" ] && printf 'balanced\n' > "$STATE_FILE"
-            apply_mode balanced
+            apply_mode balanced reapply
         fi
         ;;
     query)
