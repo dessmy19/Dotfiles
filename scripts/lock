@@ -1,0 +1,36 @@
+#!/bin/sh
+
+LOCKFILE="${XDG_RUNTIME_DIR:-/tmp}/waylock.lock"
+STATE="${XDG_RUNTIME_DIR:-/tmp}/waylock-mode"
+
+exec 9>"$LOCKFILE"
+flock -n 9 || exit 0
+
+if pgrep -x waylock >/dev/null 2>&1; then
+  exit 0
+fi
+
+powerctl query >"$STATE" 2>/dev/null
+
+(
+  while ! pgrep -x waylock >/dev/null 2>&1; do
+    sleep 0.2
+  done
+  while pgrep -x waylock >/dev/null 2>&1; do
+    sleep 1
+  done
+  if [ -s "$STATE" ]; then
+    mode=$(cat "$STATE")
+    rm -f "$STATE"
+    sudo -n powerctl apply "$mode" >/dev/null 2>&1
+  fi
+) &
+
+sudo -n powerctl apply powersave >/dev/null 2>&1
+
+exec waylock -fork-on-lock \
+  -init-color 0x1a1b26 \
+  -input-color 0x7aa2f7 \
+  -input-alt-color 0xad8ee6 \
+  -fail-color 0xf7768e
+
