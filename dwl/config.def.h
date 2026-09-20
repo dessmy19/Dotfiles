@@ -23,7 +23,6 @@ static const uint32_t col_blu   = 0x7aa2f7ff;
 static const uint32_t col_mag   = 0xad8ee6ff;
 static const uint32_t col_cyn   = 0x0db9d7ff;
 static const uint32_t col_brblk = 0x444b6aff;
-static const uint32_t col_wht   = 0xc0caf5ff;
 
 static const uint32_t barcolors[16] = {
     col_bg,
@@ -44,10 +43,9 @@ static const uint32_t barcolors[16] = {
     0xffffffff
 };
 
-
 static uint32_t colors[][3] = {
     [SchemeNorm]  = { col_fg,   col_bg,  col_brblk },
-    [SchemeSel]   = { col_wht,  col_bg,  col_mag   },
+    [SchemeSel]   = { col_fg,   col_bg,  col_mag   },
     [SchemeOcc]   = { col_blu,  col_bg,  col_blu   },
     [SchemeUrg]   = { 0,        0,       0x770000ff },
     [SchemeUnder] = { col_mag,  col_bg,  col_mag   },
@@ -132,13 +130,13 @@ static const Key keys[] = {
 	{ MODKEY,                              XKB_KEY_Escape,         spawn,            SHCMD("$HOME/.config/scripts/lock") },
 	{ MODKEY,                              XKB_KEY_p,              spawn,            SHCMD("c=\"$(hyprpicker -a)\" && [ -n \"$c\" ] && convert -size 64x64 \"xc:$c\" /tmp/hyprpicker.png && notify-send -a hyprpicker -i /tmp/hyprpicker.png 'Hyprpicker' \"$c\"") },
 
-	{ MODKEY,                              XKB_KEY_F6,             spawn,            SHCMD("brightnessctl set +5% && val=$(brightnessctl -m | cut -d, -f4 | tr -d %) && notify-send -a brightness -h string:x-canonical-private-synchronous:brightness -h int:value:$val -h string:bgcolor:'#e0af68' -h string:fgcolor:'#e0af68' -h string:frcolor:'#e0af68' -t 1500 ' ' ' '") },
-	{ MODKEY,                              XKB_KEY_F5,             spawn,            SHCMD("brightnessctl set 5%- && val=$(brightnessctl -m | cut -d, -f4 | tr -d %) && notify-send -a brightness -h string:x-canonical-private-synchronous:brightness -h int:value:$val -h string:bgcolor:'#e0af68' -h string:fgcolor:'#e0af68' -h string:frcolor:'#e0af68' -t 1500 ' ' ' '") },
+	{ MODKEY,                              XKB_KEY_bracketright,   spawn,            SHCMD("brightnessctl set +5% && val=$(brightnessctl -m | cut -d, -f4 | tr -d %) && notify-send -a brightness -h string:x-canonical-private-synchronous:brightness -h int:value:$val -h string:bgcolor:'#e0af68' -h string:fgcolor:'#e0af68' -h string:frcolor:'#e0af68' -t 1500 ' ' ' '") },
+	{ MODKEY,                              XKB_KEY_bracketleft,    spawn,            SHCMD("brightnessctl set 5%- && val=$(brightnessctl -m | cut -d, -f4 | tr -d %) && notify-send -a brightness -h string:x-canonical-private-synchronous:brightness -h int:value:$val -h string:bgcolor:'#e0af68' -h string:fgcolor:'#e0af68' -h string:frcolor:'#e0af68' -t 1500 ' ' ' '") },
 
-	{ MODKEY,                              XKB_KEY_F3,             spawn,            SHCMD("wpctl set-volume -l 1.0 @DEFAULT_AUDIO_SINK@ 5%+ && vol=$(wpctl get-volume @DEFAULT_AUDIO_SINK@ | awk '{printf $2*100}' | cut -d. -f1) && notify-send -a volume -h string:x-canonical-private-synchronous:volume -h int:value:$vol -h string:bgcolor:'#7aa2f7' -h string:fgcolor:'#7aa2f7' -h string:frcolor:'#7aa2f7' -t 1500 ' ' ' '") },
-	{ MODKEY,                              XKB_KEY_F2,             spawn,            SHCMD("wpctl set-volume @DEFAULT_AUDIO_SINK@ 5%- && vol=$(wpctl get-volume @DEFAULT_AUDIO_SINK@ | awk '{printf $2*100}' | cut -d. -f1) && notify-send -a volume -h string:x-canonical-private-synchronous:volume -h int:value:$vol -h string:bgcolor:'#7aa2f7' -h string:fgcolor:'#7aa2f7' -h string:frcolor:'#7aa2f7' -t 1500 ' ' ' '") },
-	{ MODKEY,                              XKB_KEY_F1,             spawn,            SHCMD("wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle && st=$(wpctl get-volume @DEFAULT_AUDIO_SINK@ | grep -q MUTED && echo Muted || echo Unmuted) && notify-send -a volume -h string:x-canonical-private-synchronous:volume -t 1500 Volume $st") },
-	{ MODKEY,                              XKB_KEY_F4,             spawn,            SHCMD("wpctl set-mute @DEFAULT_AUDIO_SOURCE@ toggle && st=$(wpctl get-volume @DEFAULT_AUDIO_SOURCE@ | grep -q MUTED && echo Muted || echo Unmuted) && notify-send -a mic -h string:x-canonical-private-synchronous:mic -t 1500 Microphone $st") },
+	{ MODKEY,                              XKB_KEY_equal,          spawn,            SHCMD("wpctl set-volume -l 1.0 @DEFAULT_AUDIO_SINK@ 5%+ && vol=$(wpctl get-volume @DEFAULT_AUDIO_SINK@ | awk '{printf $2*100}' | cut -d. -f1) && notify-send -a volume -h string:x-canonical-private-synchronous:volume -h int:value:$vol -h string:bgcolor:'#7aa2f7' -h string:fgcolor:'#7aa2f7' -h string:frcolor:'#7aa2f7' -t 1500 ' ' ' '") },
+	{ MODKEY,                              XKB_KEY_minus,          spawn,            SHCMD("wpctl set-volume @DEFAULT_AUDIO_SINK@ 5%- && vol=$(wpctl get-volume @DEFAULT_AUDIO_SINK@ | awk '{printf $2*100}' | cut -d. -f1) && notify-send -a volume -h string:x-canonical-private-synchronous:volume -h int:value:$vol -h string:bgcolor:'#7aa2f7' -h string:fgcolor:'#7aa2f7' -h string:frcolor:'#7aa2f7' -t 1500 ' ' ' '") },
+	{ MODKEY,                              XKB_KEY_BackSpace,      spawn,            SHCMD("wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle && st=$(wpctl get-volume @DEFAULT_AUDIO_SINK@ | grep -q MUTED && echo Muted || echo Unmuted) && notify-send -a volume -h string:x-canonical-private-synchronous:volume -t 1500 Volume $st") },
+	{ MODKEY|WLR_MODIFIER_CTRL,            XKB_KEY_BackSpace,      spawn,            SHCMD("wpctl set-mute @DEFAULT_AUDIO_SOURCE@ toggle && st=$(wpctl get-volume @DEFAULT_AUDIO_SOURCE@ | grep -q MUTED && echo Muted || echo Unmuted) && notify-send -a mic -h string:x-canonical-private-synchronous:mic -t 1500 Microphone $st") },
 
 	{ MODKEY,                              XKB_KEY_j,              focusstack,       {.i = +1} },
 	{ MODKEY,                              XKB_KEY_k,              focusstack,       {.i = -1} },
