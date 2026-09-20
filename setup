@@ -677,6 +677,11 @@ if [ -d /root/dotfiles-src ]; then
     if [ -d "/home/${USERNAME}/.config/scripts" ]; then
         chmod -R +x "/home/${USERNAME}/.config/scripts"
     fi
+
+    if [ -d "/home/${USERNAME}/.config/qutebrowser" ]; then
+        chmod +x /home/${USERNAME}/.config/qutebrowser/fileselect.py \
+            /home/${USERNAME}/.config/qutebrowser/preview.py
+    fi
 fi
 
 mkdir -p /root/.config
