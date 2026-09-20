@@ -320,6 +320,8 @@ static void focusstack(const Arg *arg);
 static Client *focustop(Monitor *m);
 static void fullscreennotify(struct wl_listener *listener, void *data);
 static void gpureset(struct wl_listener *listener, void *data);
+static void handlecursoractivity(void);
+static int hidecursor(void *data);
 static void handlesig(int signo);
 static void incnmaster(const Arg *arg);
 static void inputdevice(struct wl_listener *listener, void *data);
@@ -425,6 +427,8 @@ static struct wlr_pointer_constraint_v1 *active_constraint;
 
 static struct wlr_cursor *cursor;
 static struct wlr_xcursor_manager *cursor_mgr;
+static struct wl_event_source *hide_source;
+static bool cursor_hidden = false;
 
 static struct wlr_scene_rect *root_bg;
 static struct wlr_session_lock_manager_v1 *session_lock_mgr;
@@ -787,6 +791,8 @@ axisnotify(struct wl_listener *listener, void *data)
 	wlr_seat_pointer_notify_axis(seat,
 			event->time_msec, event->orientation, event->delta,
 			event->delta_discrete, event->source, event->relative_direction);
+
+	handlecursoractivity();
 }
 
 bool
@@ -879,6 +885,7 @@ buttonpress(struct wl_listener *listener, void *data)
 	const Button *b;
 
 	wlr_idle_notifier_v1_notify_activity(idle_notifier, seat);
+	handlecursoractivity();
 
 	click = ClkRoot;
 	xytonode(cursor->x, cursor->y, NULL, &c, NULL, NULL, NULL);
@@ -1933,6 +1940,28 @@ handlesig(int signo)
 }
 
 void
+handlecursoractivity(void)
+{
+	wl_event_source_timer_update(hide_source, cursor_timeout * 1000);
+
+	if (!cursor_hidden)
+		return;
+
+	cursor_hidden = false;
+
+	wlr_seat_pointer_clear_focus(seat);
+	motionnotify(0, NULL, 0, 0, 0, 0);
+}
+
+int
+hidecursor(void *data)
+{
+	wlr_cursor_unset_image(cursor);
+	cursor_hidden = true;
+	return 1;
+}
+
+void
 incnmaster(const Arg *arg)
 {
 	if (!arg || !selmon)
@@ -2246,6 +2275,7 @@ motionnotify(uint32_t time, struct wlr_input_device *device, double dx, double d
 
 		wlr_cursor_move(cursor, device, dx, dy);
 		wlr_idle_notifier_v1_notify_activity(idle_notifier, seat);
+		handlecursoractivity();
 
 		/* Update selmon (even while dragging a window) */
 		if (sloppyfocus)
@@ -2268,7 +2298,7 @@ motionnotify(uint32_t time, struct wlr_input_device *device, double dx, double d
 	}
 
 	/* no client under cursor: fall back to the default cursor image */
-	if (!surface && !seat->drag)
+	if (!surface && !seat->drag && !cursor_hidden)
 		wlr_cursor_set_xcursor(cursor, cursor_mgr, "default");
 
 	pointerfocus(c, surface, sx, sy, time);
@@ -2561,6 +2591,7 @@ run(char *startup_cmd)
 	/* TODO: hack so the cursor starts at (100,100) instead of jumping from (0,0) */
 	wlr_cursor_warp_closest(cursor, NULL, cursor->x, cursor->y);
 	wlr_cursor_set_xcursor(cursor, cursor_mgr, "default");
+	handlecursoractivity();
 
 	/* run the event loop; blocks until dwl exits */
 	wl_display_run(dpy);
@@ -2575,7 +2606,7 @@ setcursor(struct wl_listener *listener, void *data)
 	if (cursor_mode != CurNormal && cursor_mode != CurPressed)
 		return;
 	/* only honor this if the requesting client has pointer focus */
-	if (event->seat_client == seat->pointer_state.focused_client)
+	if (event->seat_client == seat->pointer_state.focused_client && !cursor_hidden)
 		wlr_cursor_set_surface(cursor, event->surface,
 				event->hotspot_x, event->hotspot_y);
 }
@@ -2587,7 +2618,7 @@ setcursorshape(struct wl_listener *listener, void *data)
 	if (cursor_mode != CurNormal && cursor_mode != CurPressed)
 		return;
 	/* only honor this if the requesting client has pointer focus */
-	if (event->seat_client == seat->pointer_state.focused_client)
+	if (event->seat_client == seat->pointer_state.focused_client && !cursor_hidden)
 		wlr_cursor_set_xcursor(cursor, cursor_mgr,
 				wlr_cursor_shape_v1_name(event->shape));
 }
@@ -2857,6 +2888,8 @@ setup(void)
 
 	cursor_shape_mgr = wlr_cursor_shape_manager_v1_create(dpy, 1);
 	wl_signal_add(&cursor_shape_mgr->events.request_set_shape, &request_set_cursor_shape);
+
+	hide_source = wl_event_loop_add_timer(event_loop, hidecursor, cursor);
 
 	/* configure the seat (keyboard/pointer/touch/tablet) and its input listener */
 	wl_signal_add(&backend->events.new_input, &new_input_device);
@@ -3312,6 +3345,7 @@ virtualpointer(struct wl_listener *listener, void *data)
 	wlr_cursor_attach_input_device(cursor, device);
 	if (event->suggested_output)
 		wlr_cursor_map_input_to_output(cursor, device, event->suggested_output);
+	handlecursoractivity();
 }
 
 Monitor *
