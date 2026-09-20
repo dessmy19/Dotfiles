@@ -4,6 +4,8 @@ config.load_autoconfig(True)
 
 font = "FiraCode Nerd Font Medium"
 
+CONFIG_DIR = os.path.dirname(os.path.abspath(__file__))
+
 base00 = "#1a1b26"
 base01 = "#16161e"
 base02 = "#292e42"
@@ -39,15 +41,15 @@ c.auto_save.session = True
 config.set("fileselect.handler", "external")
 config.set(
     "fileselect.single_file.command",
-    ["foot", "--app-id", "filechoose_nnn", "nnn", "-p", "{}"],
+    ["foot", "--app-id", "filechoose_fzf", "sh", "-c", f"{CONFIG_DIR}/select.py File > {{}}"],
 )
 config.set(
     "fileselect.multiple_files.command",
-    ["foot", "--app-id", "filechoose_nnn", "nnn", "-p", "{}"],
+    ["foot", "--app-id", "filechoose_fzf", "sh", "-c", f"{CONFIG_DIR}/select.py Files --multi > {{}}"],
 )
 config.set(
     "fileselect.folder.command",
-    ["foot", "--app-id", "filechoose_nnn", "nnn", "-p", "{}"],
+    ["foot", "--app-id", "filechoose_fzf", "sh", "-c", f"{CONFIG_DIR}/select.py Folder --directory > {{}}"],
 )
 
 c.statusbar.widgets = ["url", "progress"]
@@ -171,3 +173,14 @@ c.fonts.web.family.sans_serif = font
 c.fonts.web.family.fixed = font
 c.fonts.web.family.fantasy = font
 c.fonts.web.family.cursive = font
+
+c.qt.args = [
+    "enable-gpu-rasterization",
+    "enable-zero-copy",
+    "enable-native-gpu-memory-buffers",
+    "ignore-gpu-blocklist",
+    "enable-accelerated-video-decode",
+    "enable-accelerated-mjpeg-decode",
+    "enable-accelerated-vpx-decode",
+]
+c.content.webgl = True
