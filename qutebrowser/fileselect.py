@@ -23,6 +23,7 @@ def select(prompt, multiple=False, directory=False):
     ]
     if multiple:
         cmd.append("--multi")
+        cmd.append("--bind=space:toggle+down")
     if directory:
         find_cmd = ["find", start_dir, "-type", "d", "-not", "-path", "*/.git/*", "-printf", "%p\n"]
     else:
