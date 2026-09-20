@@ -7,9 +7,9 @@ CONFIG_DIRS=(dwl foot fastfetch mako nvim qutebrowser scripts swayidle)
 chattr -i /etc/resolv.conf 2>/dev/null || true
 pacman -Sy --noconfirm parted
 if [ -d /sys/firmware/efi/efivars ]; then
-    BOOT_MODE="uefi"
+  BOOT_MODE="uefi"
 else
-    BOOT_MODE="bios"
+  BOOT_MODE="bios"
 fi
 lsblk -d -o NAME,SIZE,MODEL
 read -rp "Target disk (e.g. /dev/sda or /dev/nvme0n1): " DISK
@@ -19,14 +19,18 @@ HOSTNAME=${HOSTNAME:-artix}
 read -rp "New username [user]: " USERNAME
 USERNAME=${USERNAME:-user}
 while true; do
-    read -rsp "Root password: " ROOT_PASS; echo
-    read -rsp "Confirm root password: " ROOT_PASS2; echo
-    [ "$ROOT_PASS" = "$ROOT_PASS2" ] && [ -n "$ROOT_PASS" ] && break
+  read -rsp "Root password: " ROOT_PASS
+  echo
+  read -rsp "Confirm root password: " ROOT_PASS2
+  echo
+  [ "$ROOT_PASS" = "$ROOT_PASS2" ] && [ -n "$ROOT_PASS" ] && break
 done
 while true; do
-    read -rsp "Password for ${USERNAME}: " USER_PASS; echo
-    read -rsp "Confirm password for ${USERNAME}: " USER_PASS2; echo
-    [ "$USER_PASS" = "$USER_PASS2" ] && [ -n "$USER_PASS" ] && break
+  read -rsp "Password for ${USERNAME}: " USER_PASS
+  echo
+  read -rsp "Confirm password for ${USERNAME}: " USER_PASS2
+  echo
+  [ "$USER_PASS" = "$USER_PASS2" ] && [ -n "$USER_PASS" ] && break
 done
 read -rp "Timezone [UTC]: " TIMEZONE
 TIMEZONE=${TIMEZONE:-UTC}
@@ -45,124 +49,124 @@ echo "  4) linux-hardened"
 read -rp "Select kernel [1]: " KERNEL_CHOICE
 KERNEL_CHOICE=${KERNEL_CHOICE:-1}
 case "$KERNEL_CHOICE" in
-    1) KERNEL_PKG="linux" ;;
-    2) KERNEL_PKG="linux-lts" ;;
-    3) KERNEL_PKG="linux-zen" ;;
-    4) KERNEL_PKG="linux-hardened" ;;
-    *) error "Invalid kernel choice." ;;
+1) KERNEL_PKG="linux" ;;
+2) KERNEL_PKG="linux-lts" ;;
+3) KERNEL_PKG="linux-zen" ;;
+4) KERNEL_PKG="linux-hardened" ;;
+*) error "Invalid kernel choice." ;;
 esac
 read -rp "Root filesystem ext4/btrfs [ext4]: " ROOTFS
 ROOTFS=${ROOTFS:-ext4}
 case "$ROOTFS" in
-    ext4|btrfs) ;;
-    *) error "Unsupported filesystem: $ROOTFS" ;;
+ext4 | btrfs) ;;
+*) error "Unsupported filesystem: $ROOTFS" ;;
 esac
 read -rp "Type 'YES' to continue: " CONFIRM
 [ "$CONFIRM" = "YES" ] || error "Aborted."
-exec < /dev/null
+exec </dev/null
 if [[ "$DISK" == *"nvme"* || "$DISK" == *"mmcblk"* ]]; then
-    PART_PREFIX="${DISK}p"
+  PART_PREFIX="${DISK}p"
 else
-    PART_PREFIX="${DISK}"
+  PART_PREFIX="${DISK}"
 fi
 swapoff -a 2>/dev/null || true
 umount -R /mnt 2>/dev/null || true
 for part in "${PART_PREFIX}"*; do
-    [ -b "$part" ] && umount -f "$part" 2>/dev/null || true
+  [ -b "$part" ] && umount -f "$part" 2>/dev/null || true
 done
 wipefs -af "$DISK"
 partprobe "$DISK" 2>/dev/null || true
 sleep 1
 parted -s "$DISK" mklabel gpt
 if [ "$BOOT_MODE" = "uefi" ]; then
-    parted -s "$DISK" mkpart EFI fat32 1MiB "${EFI_SIZE}MiB"
-    parted -s "$DISK" set 1 esp on
-    parted -s "$DISK" mkpart ROOT "$ROOTFS" "${EFI_SIZE}MiB" 100%
-    EFI_PART="${PART_PREFIX}1"
-    ROOT_PART="${PART_PREFIX}2"
+  parted -s "$DISK" mkpart EFI fat32 1MiB "${EFI_SIZE}MiB"
+  parted -s "$DISK" set 1 esp on
+  parted -s "$DISK" mkpart ROOT "$ROOTFS" "${EFI_SIZE}MiB" 100%
+  EFI_PART="${PART_PREFIX}1"
+  ROOT_PART="${PART_PREFIX}2"
 else
-    parted -s "$DISK" mkpart BIOSBOOT 1MiB 2MiB
-    parted -s "$DISK" set 1 bios_grub on
-    parted -s "$DISK" mkpart ROOT "$ROOTFS" 2MiB 100%
-    ROOT_PART="${PART_PREFIX}2"
+  parted -s "$DISK" mkpart BIOSBOOT 1MiB 2MiB
+  parted -s "$DISK" set 1 bios_grub on
+  parted -s "$DISK" mkpart ROOT "$ROOTFS" 2MiB 100%
+  ROOT_PART="${PART_PREFIX}2"
 fi
 for i in 1 2 3 4 5; do
-    partprobe "$DISK" 2>/dev/null && break
-    sleep 2
+  partprobe "$DISK" 2>/dev/null && break
+  sleep 2
 done
 udevadm settle 2>/dev/null || true
 sleep 2
 wait_for_blockdev() {
-    dev="$1"
-    for i in 1 2 3 4 5 6 7 8 9 10; do
-        [ -b "$dev" ] && return 0
-        partprobe "$DISK" 2>/dev/null || true
-        partx -u "$DISK" 2>/dev/null || true
-        udevadm settle 2>/dev/null || true
-        sleep 1
-    done
-    return 1
+  dev="$1"
+  for i in 1 2 3 4 5 6 7 8 9 10; do
+    [ -b "$dev" ] && return 0
+    partprobe "$DISK" 2>/dev/null || true
+    partx -u "$DISK" 2>/dev/null || true
+    udevadm settle 2>/dev/null || true
+    sleep 1
+  done
+  return 1
 }
 lsblk "$DISK" 2>/dev/null || true
 ls -la "${PART_PREFIX}"* 2>/dev/null || true
 wait_for_blockdev "$ROOT_PART" || error "$ROOT_PART not found."
 wipefs -af "$ROOT_PART" 2>/dev/null || true
 if [ "$ROOTFS" = "btrfs" ]; then
-    mkfs.btrfs -f "$ROOT_PART"
+  mkfs.btrfs -f "$ROOT_PART"
 else
-    mkfs.ext4 -F "$ROOT_PART"
+  mkfs.ext4 -F "$ROOT_PART"
 fi
 if [ "$BOOT_MODE" = "uefi" ]; then
-    wait_for_blockdev "$EFI_PART" || error "$EFI_PART not found."
-    wipefs -af "$EFI_PART" 2>/dev/null || true
-    mkfs.fat -F32 "$EFI_PART"
+  wait_for_blockdev "$EFI_PART" || error "$EFI_PART not found."
+  wipefs -af "$EFI_PART" 2>/dev/null || true
+  mkfs.fat -F32 "$EFI_PART"
 fi
 mount "$ROOT_PART" /mnt
 if [ "$BOOT_MODE" = "uefi" ]; then
-    mkdir -p /mnt/boot/efi
-    mount "$EFI_PART" /mnt/boot/efi
+  mkdir -p /mnt/boot/efi
+  mount "$EFI_PART" /mnt/boot/efi
 fi
 mkdir -p /mnt/root/dotfiles-src
 for dir in "${CONFIG_DIRS[@]}"; do
-    if [ -d "$SCRIPT_DIR/$dir" ]; then
-        cp -r "$SCRIPT_DIR/$dir" /mnt/root/dotfiles-src/
-    else
-        :
-    fi
+  if [ -d "$SCRIPT_DIR/$dir" ]; then
+    cp -r "$SCRIPT_DIR/$dir" /mnt/root/dotfiles-src/
+  else
+    :
+  fi
 done
 if [ -f "$SCRIPT_DIR/bash/.bashrc" ]; then
-    cp "$SCRIPT_DIR/bash/.bashrc" /mnt/root/dotfiles-src/dot-bashrc
+  cp "$SCRIPT_DIR/bash/.bashrc" /mnt/root/dotfiles-src/dot-bashrc
 else
-    :
+  :
 fi
 if [ -d "$SCRIPT_DIR/dwl" ]; then
-    cp -r "$SCRIPT_DIR/dwl" /mnt/root/dwl-src
+  cp -r "$SCRIPT_DIR/dwl" /mnt/root/dwl-src
 else
-    :
+  :
 fi
 sed -i 's/^#ParallelDownloads.*/ParallelDownloads = 5/' /etc/pacman.conf 2>/dev/null || true
 pacman -Syy --noconfirm || true
 BASESTRAP_PKGS="base base-devel dbus-runit ${KERNEL_PKG} linux-firmware ${KERNEL_PKG}-headers git wget curl bash-completion tree less usbutils elogind-runit seatd pipewire pipewire-alsa pipewire-pulse pipewire-jack wireplumber alsa-utils iwd-runit inetutils openresolv grub efibootmgr bluez-utils bluez-runit ntfs-3g dosfstools exfatprogs"
 if [ "$ROOTFS" = "btrfs" ]; then
-    BASESTRAP_PKGS="$BASESTRAP_PKGS btrfs-progs"
+  BASESTRAP_PKGS="$BASESTRAP_PKGS btrfs-progs"
 else
-    BASESTRAP_PKGS="$BASESTRAP_PKGS e2fsprogs"
+  BASESTRAP_PKGS="$BASESTRAP_PKGS e2fsprogs"
 fi
 BASESTRAP_OK=0
 for i in 1 2 3; do
-    if basestrap /mnt $BASESTRAP_PKGS; then
-        BASESTRAP_OK=1
-        break
-    fi
-    pacman -Syy --noconfirm || true
-    sleep 3
+  if basestrap /mnt $BASESTRAP_PKGS; then
+    BASESTRAP_OK=1
+    break
+  fi
+  pacman -Syy --noconfirm || true
+  sleep 3
 done
 [ "$BASESTRAP_OK" -eq 1 ] || error "basestrap failed."
-fstabgen -U /mnt > /mnt/etc/fstab
-printf 'tmpfs\t/tmp\ttmpfs\trw,nosuid,nodev,size=10%%,mode=1777\t0 0\n' >> /mnt/etc/fstab
+fstabgen -U /mnt >/mnt/etc/fstab
+printf 'tmpfs\t/tmp\ttmpfs\trw,nosuid,nodev,size=10%%,mode=1777\t0 0\n' >>/mnt/etc/fstab
 
 mkdir -p /mnt/usr/local/bin
-cat > /mnt/usr/local/bin/powerctl <<'POWERCTL_EOF'
+cat >/mnt/usr/local/bin/powerctl <<'POWERCTL_EOF'
 #!/bin/sh
 
 set -eu
@@ -184,10 +188,105 @@ write_sysfs() {
 
 set_cpu_governor()   { write_sysfs "$1" /sys/devices/system/cpu/cpu[0-9]*/cpufreq/scaling_governor; }
 set_cpu_epp()        { write_sysfs "$1" /sys/devices/system/cpu/cpu[0-9]*/cpufreq/energy_performance_preference; }
+set_cpu_freq_min()   { write_sysfs "$1" /sys/devices/system/cpu/cpu[0-9]*/cpufreq/scaling_min_freq; }
+set_cpu_freq_max()   { write_sysfs "$1" /sys/devices/system/cpu/cpu[0-9]*/cpufreq/scaling_max_freq; }
 set_platform_profile(){ write_sysfs "$1" /sys/firmware/acpi/platform_profile; }
 set_sata_alpm()       { write_sysfs "$1" /sys/class/scsi_host/host*/link_power_management_policy; }
 set_pcie_aspm()        { write_sysfs "$1" /sys/module/pcie_aspm/parameters/policy; }
 set_audio_powersave()  { write_sysfs "$1" /sys/module/snd_hda_intel/parameters/power_save; }
+
+DISPLAY_BRI_LOW="${POWERCTL_BRI_LOW:-0}"
+
+xrandr_env() {
+    xuser="${SUDO_USER:-}"
+    [ -n "$xuser" ] || return 1
+    home=$(getent passwd "$xuser" 2>/dev/null | cut -d: -f6)
+    [ -n "$home" ] || return 1
+    disp="${DISPLAY:-:0}"
+    xa="${XAUTHORITY:-$home/.Xauthority}"
+    [ -e "$xa" ] || return 1
+    echo runuser -u "$xuser" -- env DISPLAY="$disp" XAUTHORITY="$xa"
+}
+
+wlr_env() {
+    xuser="${SUDO_USER:-}"
+    [ -n "$xuser" ] || return 1
+    uid=$(getent passwd "$xuser" 2>/dev/null | cut -d: -f3)
+    [ -n "$uid" ] || return 1
+    [ -d "/run/user/$uid" ] || return 1
+    wl="${WAYLAND_DISPLAY:-wayland-0}"
+    echo runuser -u "$xuser" -- env WAYLAND_DISPLAY="$wl" XDG_RUNTIME_DIR="/run/user/$uid"
+}
+
+set_backlight_level() {
+    level="$1"
+    for d in /sys/class/backlight/*/brightness; do
+        [ -e "$d" ] || continue
+        case "$level" in
+            min)
+                val=$(cat "$(dirname "$d")/min_brightness" 2>/dev/null || echo 1)
+                ;;
+            max)
+                val=$(cat "$(dirname "$d")/max_brightness" 2>/dev/null || echo 255)
+                ;;
+        esac
+        printf '%s' "$val" > "$d" 2>/dev/null || true
+    done
+}
+
+apply_display_x11() {
+    command -v xrandr >/dev/null 2>&1 || return 0
+    prefix=$(xrandr_env) || return 0
+    $prefix xrandr 2>/dev/null | awk '
+        / connected / { cur=$1 }
+        / disconnected / { cur="" }
+        cur != "" && $0 ~ /^ *[0-9]+x[0-9]+/ {
+            for (i=2; i<=NF; i++) {
+                if ($i ~ /^[0-9]/ && (rate[cur]=="" || $i+0 < rate[cur])) { rate[cur]=$i+0; mode[cur]=$1 }
+            }
+        }
+        END { for (o in mode) print o, mode[o], rate[o] }
+    ' | while read -r out m r; do
+        $prefix xrandr --output "$out" --mode "$m" --rate "$r" >/dev/null 2>&1 || true
+        $prefix xrandr --output "$out" --brightness "$DISPLAY_BRI_LOW" >/dev/null 2>&1 || true
+    done
+}
+
+apply_display_wlr() {
+    prefix="$1"
+    $prefix wlr-randr 2>/dev/null | awk '
+        /^[^ ]+ ".*"$/ { cur=$1; on[cur]=0 }
+        cur != "" && $0 ~ /^ *Enabled: yes/ { on[cur]=1 }
+        cur != "" && on[cur] && / Hz/ {
+            if ($2 == "Hz") {
+                r=$1; sub(/^[^@]*@/, "", r)
+            } else if ($2 == "px,") {
+                r=$3
+            } else {
+                next
+            }
+            sub(/ Hz$/, "", r); rn = r + 0
+            m = $1 "@" r
+            if (best[cur] == "" || rn < best[cur] + 0) { best[cur]=rn; modem[cur]=m }
+        }
+        END { for (o in modem) if (best[o] != "") print o, modem[o] }
+    ' | while read -r out m; do
+        $prefix wlr-randr --output "$out" --mode "$m" >/dev/null 2>&1 || true
+    done
+}
+
+apply_display() {
+    [ "$1" = "powersave" ] || return 0
+    set_backlight_level min
+    if command -v wlr-randr >/dev/null 2>&1; then
+        prefix=$(wlr_env) || prefix=""
+        if [ -n "$prefix" ] && $prefix wlr-randr >/dev/null 2>&1; then
+            apply_display_wlr "$prefix"
+            return 0
+        fi
+    fi
+    apply_display_x11
+}
 
 set_usb_autosuspend() {
     usb_mode="$1"; usb_timeout="${2:-2}"
@@ -242,6 +341,28 @@ read_current() {
     [ -n "$f" ] && cat "$f" 2>/dev/null
 }
 
+apply_cpu_freq() {
+    mode="$1"
+    lo=$(read_current cpuinfo_min_freq || true)
+    hi=$(read_current cpuinfo_max_freq || true)
+    [ -n "$lo" ] && [ -n "$hi" ] || return 0
+    mid=$(( (lo + hi) / 2 ))
+    case "$mode" in
+        powersave)
+            set_cpu_freq_max "$lo"
+            set_cpu_freq_min "$lo"
+            ;;
+        balanced)
+            set_cpu_freq_max "$mid"
+            set_cpu_freq_min "$lo"
+            ;;
+        performance)
+            set_cpu_freq_max "$hi"
+            set_cpu_freq_min "$hi"
+            ;;
+    esac
+}
+
 balanced_governor() {
     if gov_available schedutil; then
         echo schedutil
@@ -268,6 +389,8 @@ apply_mode() {
         powersave)
             set_cpu_governor powersave
             set_cpu_epp power
+            apply_cpu_freq powersave
+            apply_display powersave
             set_platform_profile low-power
             set_sata_alpm min_power
             set_pcie_aspm powersupersave
@@ -279,6 +402,8 @@ apply_mode() {
         balanced)
             set_cpu_governor "$(balanced_governor)"
             set_cpu_epp balance_power
+            apply_cpu_freq balanced
+            apply_display balanced
             set_platform_profile balanced
             set_sata_alpm med_power_with_dipm
             set_pcie_aspm default
@@ -290,6 +415,8 @@ apply_mode() {
         performance)
             set_cpu_governor performance
             set_cpu_epp performance
+            apply_cpu_freq performance
+            apply_display performance
             set_platform_profile performance
             set_sata_alpm max_performance
             set_pcie_aspm performance
@@ -360,13 +487,13 @@ chmod +x /mnt/usr/local/bin/powerctl
 
 HAS_NVIDIA_DUAL=0
 _HOST_GPU_INFO=$(lspci -nn 2>/dev/null || true)
-echo "$_HOST_GPU_INFO" | grep -qi nvidia   && HAS_NVIDIA_DUAL=1
+echo "$_HOST_GPU_INFO" | grep -qi nvidia && HAS_NVIDIA_DUAL=1
 _HOST_HAS_IGPU=0
 echo "$_HOST_GPU_INFO" | grep -qiE 'VGA.*Intel|Display.*Intel|VGA.*AMD|VGA.*ATI' && _HOST_HAS_IGPU=1
 [ "$HAS_NVIDIA_DUAL" -eq 1 ] && [ "$_HOST_HAS_IGPU" -eq 1 ] && HAS_NVIDIA_DUAL=2
 
 if [ "$HAS_NVIDIA_DUAL" -ge 2 ]; then
-cat > /mnt/usr/local/bin/dgpu <<'DGPU_EOF'
+  cat >/mnt/usr/local/bin/dgpu <<'DGPU_EOF'
 #!/bin/bash
 set -euo pipefail
 
@@ -446,15 +573,15 @@ case "${1:-}" in
         ;;
 esac
 DGPU_EOF
-chmod +x /mnt/usr/local/bin/dgpu
+  chmod +x /mnt/usr/local/bin/dgpu
 fi
 
 mkdir -p /mnt/etc/udev/rules.d
-cat > /mnt/etc/udev/rules.d/90-powerctl.rules <<'POWERCTL_RULES_EOF'
+cat >/mnt/etc/udev/rules.d/90-powerctl.rules <<'POWERCTL_RULES_EOF'
 SUBSYSTEM=="power_supply", ACTION=="add|change", RUN+="/usr/local/bin/powerctl reapply"
 POWERCTL_RULES_EOF
 
-cat > /mnt/root/chroot-setup.sh <<EOF
+cat >/mnt/root/chroot-setup.sh <<EOF
 #!/bin/bash
 set -e
 
@@ -631,12 +758,6 @@ if ! grep -q '^fs.file-max' /etc/sysctl.d/99-filemax.conf 2>/dev/null; then
     echo 'fs.file-max = 2097152' > /etc/sysctl.d/99-filemax.conf
 fi
 
-mkdir -p \
-    "/home/${USERNAME}/Music" \
-    "/home/${USERNAME}/Downloads" \
-    "/home/${USERNAME}/Pictures/Wallpapers" \
-    "/home/${USERNAME}/.cache"
-
 if ! grep -q '.local/bin' "/home/${USERNAME}/.bashrc" 2>/dev/null; then
     cat >> "/home/${USERNAME}/.bashrc" <<'LOCALBINPATH'
 
@@ -668,7 +789,7 @@ GPU_PKGS="mesa vulkan-icd-loader lib32-mesa lib32-vulkan-icd-loader"
 [ "\$HAS_INTEL" -eq 1 ]  && GPU_PKGS="\$GPU_PKGS vulkan-intel intel-media-driver libva-intel-driver lib32-vulkan-intel"
 [ "\$HAS_AMD" -eq 1 ]    && GPU_PKGS="\$GPU_PKGS xf86-video-amdgpu vulkan-radeon libva-mesa-driver lib32-vulkan-radeon"
 
-ALL_PKGS="\$GPU_PKGS wayland wayland-protocols pkgconf libxkbcommon libinput libnotify pixman fcft tllist wlroots0.19 wlr-randr libxcb xcb-util-wm foot mako wmenu cliphist swaybg xorg-xwayland ttf-firacode-nerd noto-fonts noto-fonts-cjk noto-fonts-emoji neovim htop zoxide fastfetch ffmpeg 7zip zip rar fzf bc qutebrowser wireguard-tools grim slurp waylock hyprpicker brightnessctl swayidle wlopm xdg-desktop-portal xdg-desktop-portal-wlr qt5-wayland qt6-wayland wl-clipboard imagemagick"
+ALL_PKGS="\$GPU_PKGS wayland wayland-protocols xorg-xwayland qt5-wayland qt6-wayland libxkbcommon libinput libnotify libxcb pixman pkgconf fcft tllist xcb-util-wm wlroots0.19 wlr-randr xdg-desktop-portal xdg-desktop-portal-wlr ttf-firacode-nerd noto-fonts noto-fonts-cjk noto-fonts-emoji wireguard-tools waylock wlopm wf-recorder wl-clipboard cliphist swaybg swayidle 7zip zip rar fzf bc grim foot htop mako wmenu chafa neovim mutool fastfetch hyprpicker ffmpegthumbnailer brightnessctl qutebrowser"
 
 for pkg in \$ALL_PKGS; do
     yes | yay -S --needed --noconfirm --mflags --skippgpcheck "\$pkg" \
@@ -909,7 +1030,7 @@ EOF
 chmod +x /mnt/root/chroot-setup.sh
 mkdir -p /mnt/etc
 if [ ! -s /etc/resolv.conf ]; then
-    printf 'nameserver 1.1.1.1\nnameserver 8.8.8.8\n' > /etc/resolv.conf
+  printf 'nameserver 1.1.1.1\nnameserver 8.8.8.8\n' >/etc/resolv.conf
 fi
 rm -f /mnt/etc/resolv.conf 2>/dev/null || true
 cp -L /etc/resolv.conf /mnt/etc/resolv.conf || error "resolv.conf copy failed."
@@ -920,23 +1041,23 @@ shopt -s nullglob
 nm_profiles=(/etc/NetworkManager/system-connections/*.nmconnection)
 shopt -u nullglob
 if [ "${#nm_profiles[@]}" -gt 0 ]; then
-    for conn in "${nm_profiles[@]}"; do
-        ssid="$(sed -n 's/^ssid=//p' "$conn" | head -n1)"
-        psk="$(sed -n 's/^psk=//p' "$conn" | head -n1)"
-        if [ -z "$ssid" ]; then
-            continue
-        fi
-        if [ -n "$psk" ]; then
-            cat > "/mnt/var/lib/iwd/${ssid}.psk" <<IWDPROFILE
+  for conn in "${nm_profiles[@]}"; do
+    ssid="$(sed -n 's/^ssid=//p' "$conn" | head -n1)"
+    psk="$(sed -n 's/^psk=//p' "$conn" | head -n1)"
+    if [ -z "$ssid" ]; then
+      continue
+    fi
+    if [ -n "$psk" ]; then
+      cat >"/mnt/var/lib/iwd/${ssid}.psk" <<IWDPROFILE
 [Security]
 Passphrase=${psk}
 IWDPROFILE
-            chmod 600 "/mnt/var/lib/iwd/${ssid}.psk"
-        else
-            : > "/mnt/var/lib/iwd/${ssid}.open"
-            chmod 600 "/mnt/var/lib/iwd/${ssid}.open"
-        fi
-    done
+      chmod 600 "/mnt/var/lib/iwd/${ssid}.psk"
+    else
+      : >"/mnt/var/lib/iwd/${ssid}.open"
+      chmod 600 "/mnt/var/lib/iwd/${ssid}.open"
+    fi
+  done
 fi
 
 artix-chroot /mnt /root/chroot-setup.sh
