@@ -1,0 +1,27 @@
+#!/bin/sh
+
+SAVE_DIR="$HOME/Videos/Recordings"
+mkdir -p "$SAVE_DIR"
+FILEPATH="$SAVE_DIR/recording_$(date +'%Y-%m-%d_%H-%M-%S').mp4"
+MODE="${1:-full}"
+PID_FILE="/tmp/wf-recorder.pid"
+
+if [ -f "$PID_FILE" ] && kill -0 "$(cat "$PID_FILE")" 2>/dev/null; then
+    kill "$(cat "$PID_FILE")"
+    rm -f "$PID_FILE"
+    notify-send "Recording" "Stopped and saved" 2>/dev/null
+    exit 0
+fi
+
+if [ "$MODE" = "area" ]; then
+    GEOM=$(slurp 2>/dev/null)
+    if [ -z "$GEOM" ]; then
+        exit 1
+    fi
+    wf-recorder -g "$GEOM" -f "$FILEPATH" &
+else
+    wf-recorder -f "$FILEPATH" &
+fi
+
+echo $! > "$PID_FILE"
+notify-send "Recording" "Started" 2>/dev/null
