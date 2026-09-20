@@ -23,6 +23,7 @@ static const uint32_t col_blu   = 0x7aa2f7ff;
 static const uint32_t col_mag   = 0xad8ee6ff;
 static const uint32_t col_cyn   = 0x0db9d7ff;
 static const uint32_t col_brblk = 0x444b6aff;
+static const uint32_t col_wht   = 0xc0caf5ff;
 
 static const uint32_t barcolors[16] = {
     col_bg,
@@ -46,7 +47,7 @@ static const uint32_t barcolors[16] = {
 
 static uint32_t colors[][3] = {
     [SchemeNorm]  = { col_fg,   col_bg,  col_brblk },
-    [SchemeSel]   = { col_blu,  col_bg,  col_mag   },
+    [SchemeSel]   = { col_wht,  col_bg,  col_mag   },
     [SchemeOcc]   = { col_blu,  col_bg,  col_blu   },
     [SchemeUrg]   = { 0,        0,       0x770000ff },
     [SchemeUnder] = { col_mag,  col_bg,  col_mag   },
@@ -99,7 +100,7 @@ static const double accel_speed = 0.0;
 
 static const enum libinput_config_tap_button_map button_map = LIBINPUT_CONFIG_TAP_MAP_LRM;
 
-static const int cursor_timeout = 2;
+static const int cursor_timeout = 1;
 
 #define MODKEY WLR_MODIFIER_LOGO
 
