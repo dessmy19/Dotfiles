@@ -1,8 +1,8 @@
-timeout 300 'waylock -init-color 0x1a1b26 -input-color 0x7aa2f7 -input-alt-color 0xad8ee6 -fail-color 0xf7768e'
-timeout 600 'wlopm --dpms off' resume 'wlopm --dpms on'
+timeout 120 '$HOME/.config/scripts/lock'
+timeout 300 'wlopm --dpms off' resume 'wlopm --dpms on'
 
-before-sleep 'waylock -init-color 0x1a1b26 -input-color 0x7aa2f7 -input-alt-color 0xad8ee6 -fail-color 0xf7768e'
+before-sleep '$HOME/.config/scripts/lock'
 after-resume 'wlopm --dpms on'
-lock 'waylock -init-color 0x1a1b26 -input-color 0x7aa2f7 -input-alt-color 0xad8ee6 -fail-color 0xf7768e'
+lock '$HOME/.config/scripts/lock'
 unlock 'wlopm --dpms on'
-idlehint 300
+idlehint 120
