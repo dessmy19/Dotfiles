@@ -1,4 +1,4 @@
-PS1='\[\e[1;92m\][\u@\h \W]\$\[\e[0m\] '
+PS1='\[\e[1;38;2;122;162;247m\]\W \[\e[1;38;2;224;175;104m\]\$\[\e[0m\] '
 
 export XDG_CONFIG_HOME="$HOME/.config"
 export XDG_CACHE_HOME="$HOME/.cache"
@@ -8,19 +8,13 @@ export XDG_STATE_HOME="$HOME/.local/state"
 export EDITOR="nvim"
 export VISUAL="nvim"
 
-if command -v bat >/dev/null 2>&1; then
-  export MANPAGER="bat -l man -p"
-elif command -v batcat >/dev/null 2>&1; then
-  export MANPAGER="batcat -l man -p"
-fi
-
 export GPG_TTY=$(tty)
 
 export PATH="$HOME/.local/bin:$HOME/.config/scripts:$PATH"
 
 case $- in
-  *i*) ;;
-  *) return ;;
+*i*) ;;
+*) return ;;
 esac
 
 if [ -z "$WAYLAND_DISPLAY" ] && [ -z "$DISPLAY" ] && [ "$(tty)" = "/dev/tty1" ]; then
@@ -40,8 +34,6 @@ shopt -s autocd 2>/dev/null
 shopt -s checkwinsize
 shopt -s globstar 2>/dev/null
 
-eval "$(zoxide init bash)"
-
 if [ -f /usr/share/bash-completion/bash_completion ]; then
   source /usr/share/bash-completion/bash_completion
 elif [ -f /etc/bash_completion ]; then
@@ -58,67 +50,68 @@ if [[ -f /usr/share/fzf/key-bindings.bash ]]; then
   source /usr/share/fzf/completion.bash
 fi
 
-export FZF_DEFAULT_COMMAND='fd --type f --hidden --strip-cwd-prefix'
+_fzf_preview() {
+  local file="$1"
+  local width="${2:-$FZF_PREVIEW_COLUMNS}"
+  local height="${3:-$FZF_PREVIEW_LINES}"
+
+  if [[ ! -f "$file" ]]; then
+    ls -la --color=always "$file" 2>/dev/null
+    return
+  fi
+
+  local mime=$(file --mime-type -b "$file" 2>/dev/null)
+
+  case "$mime" in
+    image/*)
+      chafa -f sixel -s "${width}x${height}" "$file" 2>/dev/null || chafa -s "${width}x${height}" "$file" 2>/dev/null
+      ;;
+    video/*)
+      local thumb="/tmp/fzf-thumb-$(basename "$file").jpg"
+      ffmpegthumbnailer -i "$file" -o "$thumb" -s 0 -q 10 2>/dev/null && _fzf_preview "$thumb" "$width" "$height"
+      ;;
+    application/pdf)
+      mutool draw -F txt -o - "$file" 1 2>/dev/null | head -n "$height"
+      ;;
+    application/*zip*|application/x-tar|application/gzip|application/x-bzip2|application/x-xz)
+      tar -tvf "$file" 2>/dev/null | head -n "$height"
+      ;;
+    text/*|application/json|application/xml|application/javascript|application/x-shellscript)
+      cat "$file" 2>/dev/null | head -n "$height"
+      ;;
+    *)
+      file "$file"
+      ;;
+  esac
+}
+
+export -f _fzf_preview
+export FZF_DEFAULT_COMMAND="find . -type f -not -path '*/.git/*' -printf '%P\n'"
 export FZF_CTRL_T_COMMAND="$FZF_DEFAULT_COMMAND"
-export FZF_DEFAULT_OPTS='
+export FZF_DEFAULT_OPTS="
   --height=60%
   --layout=reverse
   --border=none
   --no-separator
   --no-scrollbar
-  --prompt="  "
-  --pointer="  "
-  --marker="  "
+  --prompt='  '
+  --pointer='  '
+  --marker='  '
+  --preview='_fzf_preview {}'
   --preview-window=right,65%,wrap,border-none
-  --color=bg+:#24283b,bg:#1a1b26,spinner:#7aa2f7,hl:#7dcfff
+  --color=bg+:#7aa2f7,spinner:#7aa2f7,hl:#7dcfff
   --color=fg:#c0caf5,header:#7aa2f7,info:#9ece6a,pointer:#bb9af7
-  --color=marker:#bb9af7,fg+:#c0caf5,prompt:#7aa2f7,hl+:#7dcfff
-'
-export _FZF_PREVIEW_CMD='bat --color=always --style=plain,numbers --line-range=:500 {}'
-export FZF_CTRL_T_OPTS="--preview '$_FZF_PREVIEW_CMD'"
-
-_fzf_file_no_hidden() {
-  local cmd result
-  cmd="${FZF_DEFAULT_COMMAND/--hidden /}"
-  result=$(eval "${cmd:-find . -type f}" | fzf --preview "$_FZF_PREVIEW_CMD") || return
-  READLINE_LINE="${READLINE_LINE:0:$READLINE_POINT}$result${READLINE_LINE:$READLINE_POINT}"
-  READLINE_POINT=$((READLINE_POINT + ${#result}))
-}
+  --color=marker:#bb9af7,fg+:#1a1b26,prompt:#7aa2f7,hl+:#e0af68
+"
+export FZF_CTRL_T_OPTS="--preview '_fzf_preview {}'"
+export FZF_CTRL_R_OPTS='--preview-window=hidden'
 
 alias sdwl='~/.config/scripts/startdwl'
-
-alias cat='bat'
-
 alias diff='diff --color=auto'
 alias df='df -h'
-
 alias vim='nvim'
-
 alias glog='PAGER="less -F -X" git log'
 alias gadog='PAGER="less -F -X" git log --all --decorate --oneline --graph'
-
-export NNN_OPTS="d"
-export NNN_OPENER="nuke"
-export NNN_FIFO="/tmp/nnn.fifo"
-export NNN_TERMINAL="foot"
-export NNN_BMS='h:$HOME;D:$HOME/Downloads;P:$HOME/Pictures/Wallpapers;d:$HOME/Documents'
-export NNN_TRASH=1
-export NNN_PLUG='p:preview-tui;o:fzopen;f:finder;g:gitroot;j:autojump;d:diffs;r:openall;a:dups;n:nmount;i:imgview;b:nbak;c:getplugs'
-
-n() {
-  if [ -n "$NNNLVL" ] && [ "${NNNLVL:-0}" -ge 1 ]; then
-    echo "nnn is already running"
-    return
-  fi
-  NNN_TMPFILE="${XDG_CONFIG_HOME:-$HOME/.config}/nnn/.lastd"
-  nnn -e "$@"
-  if [ -f "$NNN_TMPFILE" ]; then
-    . "$NNN_TMPFILE"
-    rm -f "$NNN_TMPFILE" > /dev/null
-  fi
-}
-
-alias l='n'
 
 set -o vi
 
@@ -128,13 +121,13 @@ bind '"\e[1;5D": backward-word'
 wifi() {
   local dev networks network pass
 
-  dev=$(iwctl device list 2>/dev/null \
-    | sed -E 's/\x1b\[[0-9;]*[a-zA-Z]//g' \
-    | grep -Ev '^[[:space:]]*$' \
-    | grep -Ev '^-+$' \
-    | grep -Ev '^[[:space:]]*Devices[[:space:]]*$' \
-    | grep -Ev '^[[:space:]]*Name[[:space:]]+Address' \
-    | awk '{print $1; exit}')
+  dev=$(iwctl device list 2>/dev/null |
+    sed -E 's/\x1b\[[0-9;]*[a-zA-Z]//g' |
+    grep -Ev '^[[:space:]]*$' |
+    grep -Ev '^-+$' |
+    grep -Ev '^[[:space:]]*Devices[[:space:]]*$' |
+    grep -Ev '^[[:space:]]*Name[[:space:]]+Address' |
+    awk '{print $1; exit}')
 
   if [ -z "$dev" ]; then
     echo "No wireless device found" >&2
@@ -145,12 +138,12 @@ wifi() {
   sleep 3
 
   local cur_ssid known raw networks network security
-  cur_ssid=$(iwctl station "$dev" show 2>/dev/null \
-    | awk '/Connected network/{for(i=3;i<=NF;i++) printf "%s ",$i; print ""}' | xargs 2>/dev/null)
+  cur_ssid=$(iwctl station "$dev" show 2>/dev/null |
+    awk '/Connected network/{for(i=3;i<=NF;i++) printf "%s ",$i; print ""}' | xargs 2>/dev/null)
 
-  known=$(iwctl known-networks list 2>/dev/null \
-    | sed -E 's/\x1b\[[0-9;]*[a-zA-Z]//g' \
-    | awk '
+  known=$(iwctl known-networks list 2>/dev/null |
+    sed -E 's/\x1b\[[0-9;]*[a-zA-Z]//g' |
+    awk '
         /^[[:space:]]*$/ { next }
         /^[[:space:]]*-+[[:space:]]*$/ { next }
         /^[[:space:]]*Known Networks[[:space:]]*$/ { next }
@@ -165,9 +158,9 @@ wifi() {
             print name
         }')
 
-  raw=$(iwctl station "$dev" get-networks 2>/dev/null \
-    | sed -E 's/\x1b\[[0-9;]*[a-zA-Z]//g' \
-    | awk -v cur="$cur_ssid" '
+  raw=$(iwctl station "$dev" get-networks 2>/dev/null |
+    sed -E 's/\x1b\[[0-9;]*[a-zA-Z]//g' |
+    awk -v cur="$cur_ssid" '
         /^[[:space:]]*$/ { next }
         /^[[:space:]]*-+[[:space:]]*$/ { next }
         /^[[:space:]]*Available networks[[:space:]]*$/ { next }
@@ -265,7 +258,7 @@ bt() {
     done < <(bluetoothctl devices Paired 2>/dev/null | sed -E 's/^Device //')
 
     while IFS= read -r line; do
-      clean=$(_bt_strip <<< "$line")
+      clean=$(_bt_strip <<<"$line")
       _bt_parse_scan "$clean" || true
     done < <(bluetoothctl --timeout 8 scan on 2>&1)
 
@@ -299,8 +292,8 @@ bt() {
 
     i=0
     while [ "$i" -lt "$timeout" ]; do
-      sink=$(pactl list sinks short 2>/dev/null \
-        | awk -v m="${mac//:/_}" '$2 ~ "bluez_output." m {print $2; exit}')
+      sink=$(pactl list sinks short 2>/dev/null |
+        awk -v m="${mac//:/_}" '$2 ~ "bluez_output." m {print $2; exit}')
       [ -n "$sink" ] && break
       sleep 1
       i=$((i + 1))
@@ -382,7 +375,7 @@ bt() {
   choice=$(printf '%s' "$devices" | fzf --prompt=" Bluetooth> ")
   [ -z "$choice" ] && return 0
 
-  mac=$(awk '{print $1}' <<< "$choice")
+  mac=$(awk '{print $1}' <<<"$choice")
 
   if _bt_is_connected "$mac"; then
     bluetoothctl disconnect "$mac" >/dev/null 2>&1
@@ -400,8 +393,8 @@ BLE_HOME="${XDG_DATA_HOME:-$HOME/.local/share}/blesh"
 _ble_fetch() {
   local src
   src="$(mktemp -d)"
-  git clone --recursive --depth 1 https://github.com/akinomyoga/ble.sh.git "$src" \
-    && make -C "$src" install PREFIX="${XDG_DATA_HOME:-$HOME/.local/share}/.."
+  git clone --recursive --depth 1 https://github.com/akinomyoga/ble.sh.git "$src" &&
+    make -C "$src" install PREFIX="${XDG_DATA_HOME:-$HOME/.local/share}/.."
   rm -rf "$src"
 }
 
@@ -414,15 +407,69 @@ function blerc/vim-load-hook {
   ble-bind -m vi_nmap -f 'C-m' accept-line
   ble-bind -m vi_nmap -f 'RET' accept-line
 
-  ble-bind -m emacs   -c M-i wifi
-  ble-bind -m vi_imap -c M-i wifi
-  ble-bind -m vi_nmap -c M-i wifi
-  ble-bind -m emacs   -c M-p bt
-  ble-bind -m vi_imap -c M-p bt
-  ble-bind -m vi_nmap -c M-p bt
-  ble-bind -m emacs   -c M-o _fzf_file_no_hidden
-  ble-bind -m vi_imap -c M-o _fzf_file_no_hidden
-  ble-bind -m vi_nmap -c M-o _fzf_file_no_hidden
+  bleopt keymap_vi_mode_name_insert=$'\e[38;2;26;27;38;48;2;158;206;106m INSERT \e[m'
+  bleopt keymap_vi_mode_name_replace=$'\e[38;2;26;27;38;48;2;255;158;100m REPLACE \e[m'
+  bleopt keymap_vi_mode_name_vreplace=$'\e[38;2;26;27;38;48;2;247;118;142m VREPLACE \e[m'
+  bleopt keymap_vi_mode_name_visual=$'\e[38;2;26;27;38;48;2;187;154;247m VISUAL \e[m'
+  bleopt keymap_vi_mode_name_select=$'\e[38;2;26;27;38;48;2;125;207;255m SELECT \e[m'
+  bleopt keymap_vi_mode_name_linewise=$'\e[38;2;26;27;38;48;2;122;162;247m LINE \e[m'
+  bleopt keymap_vi_mode_name_blockwise=$'\e[38;2;26;27;38;48;2;224;175;104m BLOCK \e[m'
+  bleopt keymap_vi_mode_string_nmap=$'\e[38;2;122;162;247m~\e[m'
+
+  function ble/prompt/backslash:keymap:vi/mode-indicator {
+    [[ $bleopt_keymap_vi_mode_show ]] || return 0
+    local keymap=${prompt_vi_keymap-}
+    if [[ $keymap ]]; then
+      ble/prompt/unit/add-hash '$_ble_decode_keymap,${_ble_decode_keymap_stack[*]}'
+    else
+      ble/keymap:vi/script/get-vi-keymap || return 0
+    fi
+    local name= show= overwrite=
+    ble/prompt/unit/add-hash '$_ble_edit_overwrite_mode,$_ble_keymap_vi_single_command,$_ble_keymap_vi_single_command_overwrite'
+    if [[ $keymap == vi_imap ]]; then
+      show=1 overwrite=$_ble_edit_overwrite_mode
+    elif [[ $_ble_keymap_vi_single_command && ($keymap == vi_nmap || $keymap == vi_omap) ]]; then
+      show=1 overwrite=$_ble_keymap_vi_single_command_overwrite
+    elif [[ $keymap == vi_[xs]map ]]; then
+      show=x overwrite=$_ble_keymap_vi_single_command_overwrite
+    else
+      name=$bleopt_keymap_vi_mode_string_nmap
+    fi
+    if [[ $show ]]; then
+      if [[ $overwrite == R ]]; then
+        name=$bleopt_keymap_vi_mode_name_replace
+      elif [[ $overwrite ]]; then
+        name=$bleopt_keymap_vi_mode_name_vreplace
+      else
+        name=$bleopt_keymap_vi_mode_name_insert
+      fi
+      if [[ $_ble_keymap_vi_single_command ]]; then
+        local ret
+        ble/string#tolower "$name"
+        name="($ret)"
+      fi
+      if [[ $show == x ]]; then
+        ble/prompt/unit/add-hash '${_ble_edit_mark_active%+}'
+        local mark_type=${_ble_edit_mark_active%+}
+        local visual_name=$bleopt_keymap_vi_mode_name_visual
+        [[ $keymap == vi_smap ]] && visual_name=$bleopt_keymap_vi_mode_name_select
+        if [[ $mark_type == vi_line ]]; then
+          visual_name=$visual_name' '$bleopt_keymap_vi_mode_name_linewise
+        elif [[ $mark_type == vi_block ]]; then
+          visual_name=$visual_name' '$bleopt_keymap_vi_mode_name_blockwise
+        fi
+        if [[ $_ble_keymap_vi_single_command ]]; then
+          name="$name $visual_name"
+        else
+          name=$visual_name
+        fi
+      fi
+    fi
+    [[ ! $name ]] || ble/prompt/print "$name"
+  }
+
+  ble-bind -m emacs -m vi_imap -m vi_nmap -c M-i wifi
+  ble-bind -m emacs -m vi_imap -m vi_nmap -c M-p bt
 }
 blehook/eval-after-load keymap_vi blerc/vim-load-hook
 
