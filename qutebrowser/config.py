@@ -41,15 +41,15 @@ c.auto_save.session = True
 config.set("fileselect.handler", "external")
 config.set(
     "fileselect.single_file.command",
-    ["foot", "--app-id", "filechoose_fzf", "sh", "-c", f"{CONFIG_DIR}/select.py File > {{}}"],
+    ["foot", "--app-id", "filechoose_fzf", "sh", "-c", f"{CONFIG_DIR}/fileselect.py File > {{}}"],
 )
 config.set(
     "fileselect.multiple_files.command",
-    ["foot", "--app-id", "filechoose_fzf", "sh", "-c", f"{CONFIG_DIR}/select.py Files --multi > {{}}"],
+    ["foot", "--app-id", "filechoose_fzf", "sh", "-c", f"{CONFIG_DIR}/fileselect.py Files --multi > {{}}"],
 )
 config.set(
     "fileselect.folder.command",
-    ["foot", "--app-id", "filechoose_fzf", "sh", "-c", f"{CONFIG_DIR}/select.py Folder --directory > {{}}"],
+    ["foot", "--app-id", "filechoose_fzf", "sh", "-c", f"{CONFIG_DIR}/fileselect.py Folder --directory > {{}}"],
 )
 
 c.statusbar.widgets = ["url", "progress"]

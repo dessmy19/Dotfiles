@@ -32,4 +32,4 @@ if __name__ == "__main__":
         file = sys.argv[1]
         width = int(sys.argv[2]) if len(sys.argv) > 2 else 80
         height = int(sys.argv[3]) if len(sys.argv) > 3 else 40
-        printpreview(file, width, height))
+        print(preview(file, width, height))
