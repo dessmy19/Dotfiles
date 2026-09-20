@@ -45,8 +45,8 @@ static const uint32_t barcolors[16] = {
 
 
 static uint32_t colors[][3] = {
-    [SchemeNorm]  = { 0xffffffff, col_bg,  col_brblk },
-    [SchemeSel]   = { 0xffffffff, col_bg,  col_mag   },
+    [SchemeNorm]  = { col_fg,   col_bg,  col_brblk },
+    [SchemeSel]   = { col_blu,  col_bg,  col_mag   },
     [SchemeOcc]   = { col_blu,  col_bg,  col_blu   },
     [SchemeUrg]   = { 0,        0,       0x770000ff },
     [SchemeUnder] = { col_mag,  col_bg,  col_mag   },
