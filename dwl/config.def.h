@@ -1,7 +1,7 @@
 #define COLOR(hex)    { ((hex >> 24) & 0xFF) / 255.0f, \
-                        ((hex >> 16) & 0xFF) / 255.0f, \
-                        ((hex >> 8) & 0xFF) / 255.0f, \
-                        (hex & 0xFF) / 255.0f }
+                         ((hex >> 16) & 0xFF) / 255.0f, \
+                         ((hex >> 8) & 0xFF) / 255.0f, \
+                         (hex & 0xFF) / 255.0f }
 static const int sloppyfocus               = 1;
 static const int bypass_surface_visibility = 0;
 static const int smartgaps                 = 0;
@@ -45,8 +45,8 @@ static const uint32_t barcolors[16] = {
 
 
 static uint32_t colors[][3] = {
-    [SchemeNorm]  = { col_fg,   col_bg,  col_brblk },
-    [SchemeSel]   = { col_blu,  col_bg,  col_mag   },
+    [SchemeNorm]  = { 0xffffffff, col_bg,  col_brblk },
+    [SchemeSel]   = { 0xffffffff, col_bg,  col_mag   },
     [SchemeOcc]   = { col_blu,  col_bg,  col_blu   },
     [SchemeUrg]   = { 0,        0,       0x770000ff },
     [SchemeUnder] = { col_mag,  col_bg,  col_mag   },
@@ -99,6 +99,8 @@ static const double accel_speed = 0.0;
 
 static const enum libinput_config_tap_button_map button_map = LIBINPUT_CONFIG_TAP_MAP_LRM;
 
+static const int cursor_timeout = 2;
+
 #define MODKEY WLR_MODIFIER_LOGO
 
 #define TAGKEYS(KEY,SKEY,TAG) \
@@ -117,6 +119,8 @@ static const Key keys[] = {
     { MODKEY|WLR_MODIFIER_SHIFT,           XKB_KEY_V,              spawn,            SHCMD("$HOME/.config/scripts/vpn") },
     { MODKEY,                              XKB_KEY_s,              spawn,            SHCMD("$HOME/.config/scripts/snip full") },
     { MODKEY|WLR_MODIFIER_CTRL,            XKB_KEY_s,              spawn,            SHCMD("$HOME/.config/scripts/snip area") },
+    { MODKEY,                              XKB_KEY_r,              spawn,            SHCMD("$HOME/.config/scripts/record full") },
+    { MODKEY|WLR_MODIFIER_SHIFT,           XKB_KEY_r,              spawn,            SHCMD("$HOME/.config/scripts/record area") },
 	{ MODKEY|WLR_MODIFIER_CTRL,            XKB_KEY_h,              spawn,            SHCMD("foot -e htop") },
 	{ MODKEY,                              XKB_KEY_d,              spawn,            SHCMD("$HOME/.config/scripts/launchr " WMENU) },
 	{ MODKEY,                              XKB_KEY_v,              spawn,            SHCMD("c=$(cliphist list | wmenu " WMENU " -l 15 -p 'Clipboard>'); [ -n \"$c\" ] && printf '%s' \"$c\" | cliphist decode | wl-copy && notify-send 'Clipboard' 'Item copied'") },
