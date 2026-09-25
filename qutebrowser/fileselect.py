@@ -19,7 +19,7 @@ def select(prompt, multiple=False, directory=False):
         "--marker", "  ",
         "--preview", f"{CONFIG_DIR}/preview.py {{}} $FZF_PREVIEW_COLUMNS $FZF_PREVIEW_LINES",
         "--preview-window", "right,65%,wrap,border-none",
-        "--color", "bg+:#7aa2f7,spinner:#7aa2f7,hl:#7dcfff,fg:#c0caf5,header:#7aa2f7,info:#9ece6a,pointer:#bb9af7,marker:#bb9af7,fg+:#1a1b26,prompt:#7aa2f7,hl+:#e0af68",
+        "--color", "bg+:#7aa2f7,spinner:#7aa2f7,hl:#7dcfff,fg:#c0caf5,header:#7aa2f7,info:#9ece6a,pointer:#bb9af7,marker:#bb9af7,fg+:#1a1b26,prompt:#7aa2f7,hl+:#e0af68,gutter:#1a1b26",
     ]
     if multiple:
         cmd.append("--multi")
