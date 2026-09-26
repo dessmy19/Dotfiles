@@ -1,0 +1,47 @@
+#!/bin/sh
+
+rfkill unblock all
+
+brightnessctl set 1% >/dev/null 2>&1
+
+export XDG_CURRENT_DESKTOP=wlroots
+export XDG_SESSION_TYPE=wayland
+
+if grep -qE '(^|[[:space:]])amdgpu\.modeset=0([[:space:]]|$)' /proc/cmdline; then
+	export __EGL_VENDOR_LIBRARY_FILENAMES=/usr/share/glvnd/egl_vendor.d/10_nvidia.json
+	export __GLX_VENDOR_LIBRARY_NAME=nvidia
+	export WLR_RENDERER=gles2
+	export WLR_NO_HARDWARE_CURSORS=1
+fi
+
+exec dbus-run-session -- sh -c '
+	pipewire >/dev/null 2>&1 &
+	PW_PID=$!
+	sleep 1
+	pipewire-pulse >/dev/null 2>&1 &
+	PWPULSE_PID=$!
+	wireplumber >/dev/null 2>&1 &
+	WP_PID=$!
+
+	pkill -9 -x xdg-desktop-portal-wlr 2>/dev/null
+	pkill -9 -x xdg-desktop-portal 2>/dev/null
+
+	CLIPSTART="wl-paste --type text --watch cliphist store </dev/null >/dev/null 2>&1 & wl-paste --type image --watch cliphist store </dev/null >/dev/null 2>&1 &"
+
+	WALLPAPER="$(cat "$HOME/.cache/current_wallpaper" 2>/dev/null)"
+	if [ -n "$WALLPAPER" ] && [ -f "$WALLPAPER" ]; then
+		WALLSTART="swaybg -i \"$WALLPAPER\" -m fill &"
+	else
+		WALLSTART=""
+	fi
+
+	PORTALSTART="/usr/lib/xdg-desktop-portal-wlr & sleep 1; /usr/lib/xdg-desktop-portal 2>/dev/null &"
+
+	RANDRSTART="{ f=\"\$HOME/.cache/wlr-randr\"; [ -s \"\$f\" ] && sleep 1 && wlr-randr \$(cat \"\$f\") >/dev/null 2>&1; } &"
+
+	IDLESTART="swayidle -w &"
+
+	trap "kill \$PW_PID \$PWPULSE_PID \$WP_PID 2>/dev/null" EXIT
+
+	statusbar | dwl -s "$CLIPSTART $WALLSTART $PORTALSTART $RANDRSTART $IDLESTART"
+' 2>/dev/null
