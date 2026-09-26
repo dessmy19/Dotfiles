@@ -7,6 +7,13 @@ brightnessctl set 1% >/dev/null 2>&1
 export XDG_CURRENT_DESKTOP=wlroots
 export XDG_SESSION_TYPE=wayland
 
+if grep -qE '(^|[[:space:]])amdgpu\.modeset=0([[:space:]]|$)' /proc/cmdline; then
+	export __EGL_VENDOR_LIBRARY_FILENAMES=/usr/share/glvnd/egl_vendor.d/10_nvidia.json
+	export __GLX_VENDOR_LIBRARY_NAME=nvidia
+	export WLR_RENDERER=gles2
+	export WLR_NO_HARDWARE_CURSORS=1
+fi
+
 exec dbus-run-session -- sh -c '
 	pipewire >/dev/null 2>&1 &
 	PW_PID=$!
