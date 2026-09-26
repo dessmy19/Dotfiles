@@ -512,6 +512,13 @@ get_nvidia_pci() {
     }' | head -1
 }
 
+get_igpu_pci() {
+    lspci -nn | awk '/VGA compatible controller/ && !/NVIDIA/ {
+        match($0, /([0-9a-f]{4}:)?[0-9a-f]{2}:[0-9a-f]{2}\.[0-9a-f]/)
+        if (RSTART > 0) print substr($0, RSTART, RLENGTH)
+    }' | head -1
+}
+
 sysfs_pci() {
     case "$1" in
         ????:*) echo "$1" ;;
@@ -519,62 +526,189 @@ sysfs_pci() {
     esac
 }
 
-gpu_power_control() {
+nvidia_pci() { sysfs_pci "$(get_nvidia_pci)"; }
+igpu_pci()   { sysfs_pci "$(get_igpu_pci)"; }
+power_dir()  { echo "/sys/bus/pci/devices/$(nvidia_pci)/power"; }
+
+module_loaded() {
+    lsmod | awk -v m="$1" '$1 == m { f = 1 } END { exit !f }'
+}
+
+nvidia_modules() {
+    local m
+    for m in nvidia_drm nvidia_uvm nvidia_modeset nvidia; do
+        if module_loaded "$m"; then
+            printf '%s ' "$m"
+        fi
+    done
+}
+
+gpu_holders() {
+    fuser /dev/nvidia0 /dev/nvidiactl /dev/nvidia-uvm 2>/dev/null \
+        | tr -s ' ' '\n' | grep -E '^[0-9]+$' | sort -u || true
+}
+
+kill_gpu_holders() {
+    local pid name pids
+    pids=$(gpu_holders)
+    if [ -z "$pids" ]; then
+        return 0
+    fi
+    for pid in $pids; do
+        if [ "$pid" = "$$" ]; then
+            continue
+        fi
+        name=$(cat "/proc/$pid/comm" 2>/dev/null || echo "?")
+        echo "dgpu: terminating ${name} (pid ${pid})" >&2
+        kill -TERM "$pid" 2>/dev/null || true
+    done
+    for _ in $(seq 1 "$TIMEOUT"); do
+        if [ -z "$(gpu_holders)" ]; then
+            return 0
+        fi
+        sleep 1
+    done
+    for pid in $(gpu_holders); do
+        if [ "$pid" = "$$" ]; then
+            continue
+        fi
+        name=$(cat "/proc/$pid/comm" 2>/dev/null || echo "?")
+        echo "dgpu: killing ${name} (pid ${pid})" >&2
+        kill -KILL "$pid" 2>/dev/null || true
+    done
+    sleep 1
+    if [ -n "$(gpu_holders)" ]; then
+        echo "dgpu: cannot release /dev/nvidia* (pids: $(gpu_holders | tr '\n' ' '))" >&2
+        return 1
+    fi
+}
+
+panel_owner() {
+    local d card drv
+    for d in /sys/class/drm/card*-eDP-*; do
+        if [ -e "$d" ]; then
+            card=$(basename "$d" | cut -d- -f1)
+            drv=$(sed -n 's/^DRIVER=//p' "/sys/class/drm/${card}/device/uevent" 2>/dev/null || true)
+            echo "${card} (${drv:-unknown})"
+            return 0
+        fi
+    done
+    echo "none"
+}
+
+or_none() {
+    if [ -z "$1" ]; then
+        echo "none"
+    else
+        echo "$1"
+    fi
+}
+
+igpu_state() {
     local pci
-    pci=$(sysfs_pci "$(get_nvidia_pci)")
-    cat "/sys/bus/pci/devices/${pci}/power/control" 2>/dev/null || echo "on"
+    pci=$(igpu_pci)
+    if [ -n "$pci" ] && [ -e "/sys/bus/pci/drivers/amdgpu/${pci}" ]; then
+        echo "bound (active)"
+    elif lsmod | grep -q '^amdgpu '; then
+        echo "driver loaded, device unbound"
+    else
+        echo "unbound (off)"
+    fi
+}
+
+cmdline_has() {
+    grep -qE "(^|[[:space:]])$1([[:space:]]|\$)" /proc/cmdline
+}
+
+current_mode() {
+    if cmdline_has 'amdgpu\.modeset=0'; then
+        echo "dGPU-only boot"
+    elif module_loaded nvidia; then
+        echo "hybrid (nvidia loaded, panel on $(panel_owner))"
+    else
+        echo "iGPU only (nvidia unloaded)"
+    fi
+}
+
+dgpu_on() {
+    local pd
+    pd=$(power_dir)
+    if module_loaded nvidia && [ "$(cat "$pd/control" 2>/dev/null || echo on)" != "auto" ]; then
+        echo "dgpu: already on."
+        return 0
+    fi
+    for m in nvidia nvidia_modeset nvidia_uvm nvidia_drm; do
+        modprobe "$m" 2>/dev/null || echo "  Warning: failed to load ${m}" >&2
+    done
+    if [ -w "$pd/control" ]; then
+        printf 'on' > "$pd/control" 2>/dev/null || true
+    else
+        echo "dgpu: cannot set runtime PM for ${pd}" >&2
+        return 1
+    fi
+    echo "dgpu: on ($(nvidia_modules))"
+}
+
+dgpu_off() {
+    local pd st
+    pd=$(power_dir)
+    if ! module_loaded nvidia; then
+        echo "dgpu: already off."
+        return 0
+    fi
+    if [ -n "$(gpu_holders)" ]; then
+        echo "dgpu: /dev/nvidia* busy; terminating holders (ends graphical session)" >&2
+    fi
+    kill_gpu_holders
+    if [ -w "$pd/control" ]; then
+        printf 'auto' > "$pd/control" 2>/dev/null || true
+    fi
+    printf '0' > "$pd/autosuspend_delay_ms" 2>/dev/null || true
+    for m in nvidia_drm nvidia_uvm nvidia_modeset nvidia; do
+        if module_loaded "$m"; then
+            if ! modprobe -r "$m" 2>/dev/null; then
+                echo "dgpu: cannot unload ${m} (still busy)" >&2
+                return 1
+            fi
+        fi
+    done
+    sync
+    st=$(cat "$pd/runtime_status" 2>/dev/null || echo unknown)
+    echo "dgpu: off (modules unloaded, runtime_status=${st})"
+}
+
+dgpu_status() {
+    local pd ctl st
+    pd=$(power_dir)
+    ctl=$(cat "$pd/control" 2>/dev/null || echo unknown)
+    st=$(cat "$pd/runtime_status" 2>/dev/null || echo unknown)
+    echo "nvidia:   $(nvidia_pci)  control=${ctl}  runtime=${st}"
+    echo "  modules: $(or_none "$(nvidia_modules)")"
+    echo "  holders: $(or_none "$(gpu_holders | tr '\n' ' ')")"
+    echo "igpu:     $(igpu_pci)  $(igpu_state)"
+    echo "panel:    $(panel_owner)"
+    echo "mode:     $(current_mode)"
+}
+
+dgpu_solo() {
+    echo "dgpu: iGPU cannot be powered off at runtime here." >&2
+    echo "dgpu: no nvidia_wmi MUX is exposed and eDP is wired to amdgpu," >&2
+    echo "dgpu: so there is no userspace path to hand the panel to NVIDIA." >&2
+    echo "dgpu: reboot into the 'dGPU only' GRUB entry (hold ESC at boot)." >&2
+    echo "dgpu: verify afterwards with: dgpu status" >&2
 }
 
 [ "$(id -u)" -eq 0 ] || { echo "dgpu: must run as root" >&2; exit 1; }
 
-nvidia_pci=$(get_nvidia_pci)
-[ -n "$nvidia_pci" ] || { echo "dgpu: no NVIDIA GPU found." >&2; exit 1; }
-pci=$(sysfs_pci "$nvidia_pci")
-power_path="/sys/bus/pci/devices/${pci}/power/control"
-autosuspend_path="/sys/bus/pci/devices/${pci}/power/autosuspend_delay_ms"
+[ -n "$(get_nvidia_pci)" ] || { echo "dgpu: no NVIDIA GPU found." >&2; exit 1; }
 
 case "${1:-}" in
-    on)
-        if [ "$(gpu_power_control)" = "on" ]; then
-            echo "dgpu: already on."
-            exit 0
-        fi
-        if [ -w "$power_path" ]; then
-            echo on > "$power_path" 2>/dev/null || true
-        fi
-        systemctl start nvidia-persistenced 2>/dev/null || true
-        for mod in nvidia nvidia_uvm nvidia_modeset nvidia_drm; do
-            if ! lsmod | grep -q "^${mod} "; then
-                timeout --signal=KILL 30 modprobe "$mod" 2>/dev/null || {
-                    echo "  Warning: failed to load ${mod}" >&2
-                }
-            fi
-        done
-        echo "dgpu: on."
-        ;;
-    off)
-        if [ "$(gpu_power_control)" = "auto" ]; then
-            echo "dgpu: already off."
-            exit 0
-        fi
-        systemctl stop nvidia-persistenced 2>/dev/null || true
-        if [ -w "$autosuspend_path" ]; then
-            echo 0 > "$autosuspend_path" 2>/dev/null || true
-        fi
-        if [ -w "$power_path" ]; then
-            echo auto > "$power_path" 2>/dev/null
-            echo "dgpu: off (runtime PM, enters D3 when idle)."
-        else
-            echo "dgpu: cannot set runtime PM for ${pci}" >&2
-            exit 1
-        fi
-        ;;
-    s|status)
-        ctl=$(gpu_power_control)
-        echo "dgpu: ${ctl}"
-        ;;
+    on)      dgpu_on ;;
+    off)     dgpu_off ;;
+    s|status) dgpu_status ;;
+    solo)    dgpu_solo ;;
     *)
-        echo "Usage: dgpu {on|off|status}" >&2
+        echo "Usage: dgpu {on|off|status|solo}" >&2
         exit 1
         ;;
 esac
@@ -888,7 +1022,7 @@ visudo -cf /etc/sudoers.d/32-powerctl \
 
 if [ -f /usr/local/bin/dgpu ]; then
 cat > /etc/sudoers.d/33-dgpu <<'SUDOERS'
-%wheel ALL=(root) NOPASSWD: /usr/local/bin/dgpu on, /usr/local/bin/dgpu off, /usr/local/bin/dgpu s, /usr/local/bin/dgpu status
+%wheel ALL=(root) NOPASSWD: /usr/local/bin/dgpu on, /usr/local/bin/dgpu off, /usr/local/bin/dgpu s, /usr/local/bin/dgpu status, /usr/local/bin/dgpu solo
 SUDOERS
 chmod 0440 /etc/sudoers.d/33-dgpu
 visudo -cf /etc/sudoers.d/33-dgpu \
@@ -988,11 +1122,11 @@ echo 0 > /sys/power/pm_async 2>/dev/null
 exec sv down pm-async-off
 PMASYNC
 
-sed -i 's/^GRUB_TIMEOUT=.*/GRUB_TIMEOUT=0/' /etc/default/grub
+sed -i 's/^GRUB_TIMEOUT=.*/GRUB_TIMEOUT=3/' /etc/default/grub
 if grep -q '^GRUB_TIMEOUT_STYLE=' /etc/default/grub; then
-    sed -i 's/^GRUB_TIMEOUT_STYLE=.*/GRUB_TIMEOUT_STYLE=hidden/' /etc/default/grub
+    sed -i 's/^GRUB_TIMEOUT_STYLE=.*/GRUB_TIMEOUT_STYLE=menu/' /etc/default/grub
 else
-    echo 'GRUB_TIMEOUT_STYLE=hidden' >> /etc/default/grub
+    echo 'GRUB_TIMEOUT_STYLE=menu' >> /etc/default/grub
 fi
 if grep -q '^GRUB_DEFAULT=' /etc/default/grub; then
     sed -i 's/^GRUB_DEFAULT=.*/GRUB_DEFAULT=saved/' /etc/default/grub
@@ -1009,6 +1143,33 @@ if grep -q '^GRUB_DISABLE_SUBMENU=' /etc/default/grub; then
 else
     echo 'GRUB_DISABLE_SUBMENU=true' >> /etc/default/grub
 fi
+
+cat > /etc/grub.d/40_dgpu <<'DGPU_GRUB_EOF'
+#!/bin/sh
+# dGPU-only boot entry: amdgpu loses KMS so nvidia_drm can drive the panel.
+# Later kernel params win, so modeset=1 overrides the default modeset=0.
+
+. /etc/default/grub
+
+base="${GRUB_CMDLINE_LINUX:-}${GRUB_CMDLINE_LINUX:+ }${GRUB_CMDLINE_LINUX_DEFAULT:-}"
+base=$(echo "$base" | sed 's/nvidia_drm\.modeset=[01]//g; s/[[:space:]]\{1,\}/ /g; s/^ //; s/ $//')
+extra="amdgpu.modeset=0 nvidia_drm.modeset=1 nvidia_drm.fbdev=1"
+
+kimg=$(ls -1 /boot/vmlinuz-* 2>/dev/null | sort -V | tail -1)
+[ -n "$kimg" ] || exit 0
+iimg="/boot/initramfs-${kimg#/boot/vmlinuz-}.img"
+if [ ! -f "$iimg" ]; then
+    iimg=$(ls -1 /boot/initramfs-*.img 2>/dev/null | sort -V | tail -1)
+fi
+[ -f "$iimg" ] || exit 0
+
+echo "menuentry 'Artix Linux (dGPU only)' --class 'linux-custom' {"
+echo "	set gfxpayload=text"
+echo "	linux ${kimg} ${base} ${extra} \$vt_handling=\${vt_handoff}"
+echo "	initrd ${iimg}"
+echo "}"
+DGPU_GRUB_EOF
+chmod +x /etc/grub.d/40_dgpu
 
 if [ -d /sys/firmware/efi/efivars ]; then
     grub-install --target=x86_64-efi --efi-directory=/boot/efi --bootloader-id=Artix
