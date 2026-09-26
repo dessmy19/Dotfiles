@@ -71,7 +71,7 @@ _bt_setup_audio() {
   done
 
   if ! pactl list cards short 2>/dev/null | grep -qF "$card"; then
-    notify-send -a bt 'Bluetooth' 'Audio card not ready — try reconnecting'
+    notify-send -a bt -u critical 'Bluetooth' 'Audio card not ready — try reconnecting'
     return 1
   fi
 
@@ -89,7 +89,7 @@ _bt_setup_audio() {
   done
 
   if [ -z "$sink" ]; then
-    notify-send -a bt 'Bluetooth' 'Audio sink not found'
+    notify-send -a bt -u critical 'Bluetooth' 'Audio sink not found'
     return 1
   fi
 
@@ -134,7 +134,7 @@ pair_connect() {
 
     if ! bluetoothctl info "$mac" 2>/dev/null | grep -q "Paired: yes"; then
       bluetoothctl scan off >/dev/null 2>&1
-      notify-send -a bt 'Bluetooth' "Failed to pair $name — keep it in pairing mode and try again"
+      notify-send -a bt -u critical 'Bluetooth' "Failed to pair $name — keep it in pairing mode and try again"
       return 1
     fi
   fi
@@ -153,7 +153,7 @@ pair_connect() {
   bluetoothctl scan off >/dev/null 2>&1
 
   if ! bluetoothctl info "$mac" 2>/dev/null | grep -q "Connected: yes"; then
-    notify-send -a bt 'Bluetooth' "Failed to connect $name"
+    notify-send -a bt -u critical 'Bluetooth' "Failed to connect $name"
     return 1
   fi
 
@@ -164,11 +164,11 @@ pair_connect() {
 notify-send -a bt 'Bluetooth' 'Scanning...'
 devices=$(collect_devices)
 if [ -z "$devices" ]; then
-  notify-send -a bt 'Bluetooth' 'No devices found'
+  notify-send -a bt -u critical 'Bluetooth' 'No devices found'
   exit 0
 fi
 
-choice=$(printf '%s' "$devices" | wmenu "$@" -l 15 -p ' Bluetooth> ')
+choice=$(printf '%s' "$devices" | wmenu "$@" -l 15 -p "Bluetooth>")
 [ -z "$choice" ] && exit 0
 
 mac=$(awk '{print $1}' <<<"$choice")
@@ -179,7 +179,7 @@ if _bt_is_connected "$mac"; then
   bluetoothctl disconnect "$mac" >/dev/null 2>&1
   sleep 1
   if _bt_is_connected "$mac"; then
-    notify-send -a bt 'Bluetooth' "Failed to disconnect $name"
+    notify-send -a bt -u critical 'Bluetooth' "Failed to disconnect $name"
   else
     notify-send -a bt 'Bluetooth' "Disconnect $name"
   fi

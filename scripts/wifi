@@ -9,7 +9,7 @@ dev=$(iwctl device list 2>/dev/null |
   awk '{print $1; exit}')
 
 if [ -z "$dev" ]; then
-  notify-send -a wifi 'Wi-Fi' 'No wireless device found'
+  notify-send -a wifi -u critical 'Wi-Fi' 'No wireless device found'
   exit 1
 fi
 
@@ -56,11 +56,11 @@ raw=$(iwctl station "$dev" get-networks 2>/dev/null |
 networks=$(printf '%b\n' "$raw" | awk -F'\t' '{printf "%s%s\n", $1, ($3=="*" ? " *" : "")}')
 
 if [ -z "$networks" ]; then
-  notify-send -a wifi 'Wi-Fi' 'No networks found'
+  notify-send -a wifi -u critical 'Wi-Fi' 'No networks found'
   exit 0
 fi
 
-network=$(printf '%s\n' "$networks" | wmenu "$@" -l 15 -p ' Wi-Fi> ')
+network=$(printf '%s\n' "$networks" | wmenu "$@" -l 15 -p "Wi-Fi>")
 [ -z "$network" ] && exit 0
 
 network="${network% \*}"
@@ -86,7 +86,7 @@ _wifi_connect() {
   if [ "$connected" -eq 1 ]; then
     notify-send -a wifi 'Wi-Fi' "Connect $network"
   else
-    notify-send -a wifi 'Wi-Fi' "Failed to connect $network"
+    notify-send -a wifi -u critical 'Wi-Fi' "Failed to connect $network"
   fi
 }
 
