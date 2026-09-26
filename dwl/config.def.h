@@ -122,7 +122,7 @@ static const Key keys[] = {
     { MODKEY|WLR_MODIFIER_SHIFT,           XKB_KEY_r,              spawn,            SHCMD("$HOME/.config/scripts/record area") },
 	{ MODKEY|WLR_MODIFIER_CTRL,            XKB_KEY_h,              spawn,            SHCMD("foot -e htop") },
 	{ MODKEY,                              XKB_KEY_d,              spawn,            SHCMD("$HOME/.config/scripts/launchr " WMENU) },
-	{ MODKEY,                              XKB_KEY_v,              spawn,            SHCMD("c=$(cliphist list | wmenu " WMENU " -l 15 -p 'Clipboard>'); [ -n \"$c\" ] && printf '%s' \"$c\" | cliphist decode | wl-copy && notify-send 'Clipboard' 'Item copied'") },
+	{ MODKEY,                              XKB_KEY_v,              spawn,            SHCMD("$HOME/.config/scripts/clipboard " WMENU) },
 	{ MODKEY,                              XKB_KEY_w,              spawn,            SHCMD("$HOME/.config/scripts/wifi " WMENU) },
 	{ MODKEY,                              XKB_KEY_b,              spawn,            SHCMD("$HOME/.config/scripts/bt " WMENU) },
 	{ MODKEY|WLR_MODIFIER_SHIFT,           XKB_KEY_L,              spawn,            SHCMD("$HOME/.config/scripts/walls next") },
